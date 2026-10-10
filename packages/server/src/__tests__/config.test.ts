@@ -1,3 +1,4 @@
+import * as path from 'path';
 import { loadConfig, loadDotEnv, describeConfig } from '../config';
 
 describe('loadConfig', () => {
@@ -44,6 +45,34 @@ describe('loadConfig', () => {
         expect(config.databasePath).toBe('/tmp/office.db');
         expect(config.externalApiEnabled).toBe(false);
         expect(config.externalDemoMode).toBe(true);
+    });
+
+    it('Block 2: real agents integration defaults', () => {
+        const config = loadConfig({});
+        expect(config.realAgentsEnabled).toBe(true);
+        expect(config.clineDataDir).toBe(path.join(process.env.HOME || '', '.cline/data'));
+        expect(config.clinePollIntervalMs).toBe(5000);
+        expect(config.dshSource).toBe('none');
+        expect(config.externalApiToken).toBeUndefined();
+    });
+
+    it('Block 2: parses and validates the new fields', () => {
+        expect(loadConfig({
+            REAL_AGENTS_ENABLED: 'false',
+            CLINE_DATA_DIR: '/workspace/.cline/data',
+            CLINE_POLL_INTERVAL_MS: '100',        // below minimum → clamped
+            DSH_SOURCE: 'none',
+            EXTERNAL_API_TOKEN: 'secreto'
+        })).toMatchObject({
+            realAgentsEnabled: false,
+            clineDataDir: '/workspace/.cline/data',
+            clinePollIntervalMs: 2000,
+            dshSource: 'none',
+            externalApiToken: 'secreto'
+        });
+
+        expect(() => loadConfig({ DSH_SOURCE: 'grpc' })).toThrow(/DSH_SOURCE/);
+        expect(() => loadConfig({ DSH_SOURCE: 'http' })).not.toThrow(); // valid, checked at startup
     });
 });
 

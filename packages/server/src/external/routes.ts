@@ -68,6 +68,24 @@ function agentCall(
 }
 
 export function registerExternalRoutes(app: Express, config: ServerConfig): void {
+    // FASE F: optional bearer-token guard. When EXTERNAL_API_TOKEN is set,
+    // every /api/external call must present it (header X-AgentOffice-Token
+    // or Authorization: Bearer <token>). The in-process orchestrator
+    // bypasses REST entirely (direct ExternalBridge calls), so real-agents
+    // syncing is unaffected.
+    if (config.externalApiToken) {
+        app.use('/api/external', (req: Request, res: Response, next) => {
+            const header = req.header('x-agent-office-token') || '';
+            const auth = (req.header('authorization') || '').replace(/^Bearer\s+/i, '');
+            if (header !== config.externalApiToken && auth !== config.externalApiToken) {
+                res.status(401).json({ ok: false, error: 'Unauthorized (missing/invalid X-AgentOffice-Token).' });
+                return;
+            }
+            next();
+        });
+        console.log('[Server] External API token guard ACTIVE (EXTERNAL_API_TOKEN set).');
+    }
+
     // Health/info — available in both modes (mode + seat counters only).
     app.get('/api/external/status', (req: Request, res: Response) => {
         const room = OfficeRoom.getActiveRoom();

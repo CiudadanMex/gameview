@@ -19,7 +19,9 @@ import { AgentState } from '../schema/OfficeState';
 /** Valid values for ExternalAgentExecutionStatus (validation helper). */
 export const EXTERNAL_AGENT_EXECUTION_STATUSES: ExternalAgentExecutionStatus[] = [
     'offline', 'idle', 'running', 'thinking', 'acting',
-    'waiting_input', 'blocked', 'error', 'completed'
+    'waiting_input', 'blocked', 'error', 'completed',
+    // Block 2: real Cline session states
+    'working', 'reading', 'editing', 'testing', 'waiting'
 ];
 
 const EXTERNAL_SESSION_STATES = ['active', 'idle', 'awaiting', 'stopped', 'crashed', 'unknown'];
@@ -55,7 +57,14 @@ const ACTION_BY_STATUS: Record<ExternalAgentExecutionStatus, string> = {
     waiting_input: 'idle',
     blocked: 'idle',
     error: 'idle',
-    completed: 'idle'
+    completed: 'idle',
+    // Block 2: real Cline states — editing/working/testing show the
+    // "work" emote at the desk; reading reuses the "think" animation.
+    working: 'work',
+    reading: 'think',
+    editing: 'work',
+    testing: 'work',
+    waiting: 'idle'
 };
 
 function clamp01(value: number): number {

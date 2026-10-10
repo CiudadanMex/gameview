@@ -29,6 +29,17 @@ export interface ServerConfig {
     externalApiEnabled: boolean;
     /** Clearly-identified demo/test data generator. Disabled by default. */
     externalDemoMode: boolean;
+    // ─── Block 2: real agents integration ───
+    /** Observe REAL Cline sessions (read-only) and mirror them in the office. */
+    realAgentsEnabled: boolean;
+    /** Cline data directory (contains db/sessions.db and sessions/). */
+    clineDataDir: string;
+    /** Poll interval for the read-only Cline watcher, in ms (min 2000). */
+    clinePollIntervalMs: number;
+    /** DSH observation source: 'none' (not installed) | 'http' (reserved). */
+    dshSource: 'none' | 'http';
+    /** Optional token; when set, /api/external requires X-AgentOffice-Token. */
+    externalApiToken?: string;
 }
 
 /**
@@ -71,6 +82,15 @@ function clampInt(value: number, min: number, max: number): number {
     return Math.max(min, Math.min(max, Math.round(value)));
 }
 
+/** Expands a leading `~` to the user's home directory. */
+export function expandHome(value: string): string {
+    if (value.startsWith('~/') || value === '~') {
+        const home = process.env.HOME || '';
+        return value === '~' ? home : home + value.slice(1);
+    }
+    return value;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     const rawMode = (env.AGENT_OFFICE_MODE || 'external').trim().toLowerCase();
     if (rawMode !== 'internal' && rawMode !== 'external') {
@@ -82,6 +102,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     const port = clampInt(Number(env.PORT || 3000) || 3000, 1, 65535);
     const maxSeats = clampInt(Number(env.MAX_SEATS || 7) || 7, 1, 7);
 
+    const rawDshSource = (env.DSH_SOURCE || 'none').trim().toLowerCase();
+    if (rawDshSource !== 'none' && rawDshSource !== 'http') {
+        throw new Error(`[Config] Invalid DSH_SOURCE "${rawDshSource}". Use "none" or "http".`);
+    }
+
     return {
         mode: rawMode,
         host: (env.HOST || '127.0.0.1').trim(),
@@ -90,7 +115,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
         databasePath: (env.DATABASE_PATH || './data/office-memory.db').trim(),
         maxSeats,
         externalApiEnabled: toBool(env.EXTERNAL_API_ENABLED, true),
-        externalDemoMode: toBool(env.EXTERNAL_DEMO_MODE, false)
+        externalDemoMode: toBool(env.EXTERNAL_DEMO_MODE, false),
+        realAgentsEnabled: toBool(env.REAL_AGENTS_ENABLED, true),
+        clineDataDir: expandHome((env.CLINE_DATA_DIR || '~/.cline/data').trim()),
+        clinePollIntervalMs: clampInt(Number(env.CLINE_POLL_INTERVAL_MS || 5000) || 5000, 2000, 60000),
+        dshSource: rawDshSource as 'none' | 'http',
+        externalApiToken: (env.EXTERNAL_API_TOKEN || '').trim() || undefined
     };
 }
 

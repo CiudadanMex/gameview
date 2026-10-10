@@ -12,6 +12,8 @@ export function TaskBoard() {
     const [tasks, setTasks] = useState<TaskItem[]>([]);
     const [newTask, setNewTask] = useState('');
     const [targetAgent, setTargetAgent] = useState('auto');
+    // Real agents present in the office (Block 2: Cline sessions, etc).
+    const [agents, setAgents] = useState<Array<{ id: string; name: string; role: string }>>([]);
 
     useEffect(() => {
         const checkRoom = setInterval(() => {
@@ -33,6 +35,25 @@ export function TaskBoard() {
                         assigned_to: t.assigned_to || '',
                         status: t.status
                     })));
+                });
+                // Keep the agent selector in sync with the office state.
+                room.state.agents.forEach((agent: any, id: string) => {
+                    setAgents(prev =>
+                        prev.some(a => a.id === id)
+                            ? prev
+                            : [...prev, { id, name: agent.name, role: agent.role || '' }]
+                    );
+                });
+                room.state.agents.onAdd((agent: any, id: string) => {
+                    setAgents(prev =>
+                        prev.some(a => a.id === id)
+                            ? prev
+                            : [...prev, { id, name: agent.name, role: agent.role || '' }]
+                    );
+                });
+                room.state.agents.onRemove((_agent: any, id: string) => {
+                    setAgents(prev => prev.filter(a => a.id !== id));
+                    if (targetAgent === id) setTargetAgent('auto');
                 });
                 clearInterval(checkRoom);
             }
@@ -101,8 +122,11 @@ export function TaskBoard() {
                         }}
                     >
                         <option value="auto">🤖 Auto-assign</option>
-                        <option value="alice">Alice (Engineer)</option>
-                        <option value="bob">Bob (PM)</option>
+                        {agents.map(agent => (
+                            <option key={agent.id} value={agent.id}>
+                                {agent.name}{agent.role ? ` (${agent.role})` : ''}
+                            </option>
+                        ))}
                     </select>
                     <button type="submit" style={{
                         padding: '6px 14px', borderRadius: 6, border: 'none',
@@ -138,7 +162,7 @@ export function TaskBoard() {
             </div>
 
             <div style={{ marginTop: 8, fontSize: '10px', color: '#555', borderTop: '1px solid #333', paddingTop: 6 }}>
-                🤖 Engine: Ollama Local • 💾 SQLite Persistence
+                🤖 Agentes reales (Cline) • 💾 SQLite
             </div>
         </div>
     );

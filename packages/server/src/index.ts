@@ -1,11 +1,15 @@
 import express from 'express';
 import { Server } from 'colyseus';
 import { createServer } from 'http';
+import * as path from 'path';
 import { OfficeRoom } from './rooms/OfficeRoom';
 import { loadDotEnv, loadConfig, describeConfig } from './config';
 import { registerExternalRoutes } from './external/routes';
+import { createRealAgentsOrchestrator } from './integrations';
 
-// Load optional .env (never overrides variables already set in the shell).
+// Load optional .env files (never overrides variables already set in
+// the shell): first the repo root, then the current working directory.
+loadDotEnv(path.resolve(__dirname, '../../../.env'));
 loadDotEnv();
 const config = loadConfig();
 
@@ -67,5 +71,16 @@ colyseusServer.listen(config.port, config.host).then(() => {
     console.log(`[Server] ${describeConfig(config)}`);
     if (config.mode === 'external') {
         console.log('[Server] No LLM inference, tools or autonomous actions will run.');
+        // ─── Block 2: observe REAL Cline sessions (read-only) ───
+        if (config.realAgentsEnabled) {
+            const orchestrator = createRealAgentsOrchestrator(config);
+            orchestrator.start();
+            const shutdown = () => { orchestrator.stop(); process.exit(0); };
+            process.on('SIGINT', shutdown);
+            process.on('SIGTERM', shutdown);
+        } else {
+            console.log('[Server] Real agents integration disabled (REAL_AGENTS_ENABLED=false).');
+        }
     }
 });
+

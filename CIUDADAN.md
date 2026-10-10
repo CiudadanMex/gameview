@@ -60,6 +60,24 @@ El modo se configura con `AGENT_OFFICE_MODE` (ver [`.env.example`](./.env.exampl
 Documentación completa de la interfaz externa: [`docs/ciudadan/EXTERNAL_INTERFACE.md`](./docs/ciudadan/EXTERNAL_INTERFACE.md)
 Instalación reproducible (máquinas Oracle): [`docs/ciudadan/INSTALL.md`](./docs/ciudadan/INSTALL.md)
 
+## Bloque 2 — Integración real (Cline + DSH slot + NVIDIA opcional)
+
+- **Agentes reales**: el servidor observa las **sesiones Cline reales**
+  (`CLINE_DATA_DIR`, solo lectura: sessions.db + JSONs de sesión/mensajes)
+  y las refleja en la oficina: identidad (session_id estable), modelo,
+  rama Git, workspace, tarea observable (título), estados derivados de
+  evidencia (`working/reading/editing/testing/waiting/idle/completed/offline`)
+  y últimos mensajes del asistente (sanitizados).
+- **DSH**: no está instalado en esta máquina (impedimento verificado y
+  documentado); el adaptador queda listo (`DSH_SOURCE=none|http` reservado).
+  Las tareas reales de *Cline Teams* se leen de `teams.db` (no es DSH).
+- **NVIDIA (opcional)**: `npm run test:nvidia` — prueba aislada de un
+  mensaje vía `OpenAICompatibleAdapter` (resultado: glm-5.3 ✅,
+  deepseek-v4-flash-0731 410 Gone — ver
+  [`docs/ciudadan/REAL_INTEGRATION.md`](./docs/ciudadan/REAL_INTEGRATION.md)).
+- **Seguridad**: todo local (127.0.0.1), sanitización de secretos, token
+  opcional `EXTERNAL_API_TOKEN`, polling de bajo impacto (5 s, min 2 s).
+
 ## Puertos y variables
 
 | Variable | Defecto | Descripción |

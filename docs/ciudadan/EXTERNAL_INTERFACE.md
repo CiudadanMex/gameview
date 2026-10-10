@@ -21,7 +21,9 @@ Mientras no haya sala activa, los endpoints devuelven **503** con un mensaje exp
 ```ts
 type ExternalAgentExecutionStatus =
   'offline' | 'idle' | 'running' | 'thinking' | 'acting'
-  | 'waiting_input' | 'blocked' | 'error' | 'completed';
+  | 'waiting_input' | 'blocked' | 'error' | 'completed'
+  // ─── Bloque 2: estados reales de sesiones Cline (derivados de evidencia) ───
+  | 'working' | 'reading' | 'editing' | 'testing' | 'waiting';
 
 interface ExternalAgentDescriptor { id: string; name: string; role: string; }
 // id: estable y único (letras, dígitos, . _ -). Ej: "cline-01"

@@ -23,7 +23,13 @@ export type ExternalAgentExecutionStatus =
     | 'waiting_input'
     | 'blocked'
     | 'error'
-    | 'completed';
+    | 'completed'
+    // ─── Block 2: real Cline session states (evidence-derived) ───
+    | 'working'
+    | 'reading'
+    | 'editing'
+    | 'testing'
+    | 'waiting';
 
 /** Static identity of an external agent. `id` must be stable and unique. */
 export interface ExternalAgentDescriptor {
