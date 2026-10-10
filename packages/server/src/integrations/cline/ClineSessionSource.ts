@@ -22,6 +22,8 @@ interface TranscriptInfo {
     lastResultToolName: string | null;
     lastToolInputHint: string | null;
     pendingQuestion: boolean;
+    /** Path of the most recent editor tool_use — the active file. */
+    activeFilePath: string | null;
 }
 
 export class ClineSessionSource {
@@ -96,6 +98,40 @@ export class ClineSessionSource {
         }
     }
 
+    /**
+     * Robust session liveness (Block 3). A session is ALIVE when:
+     *  1. its recorded pid is alive, OR
+     *  2. any running process references the session id in its command
+     *     line (covers sessions RESUMED with `cline --id <session-id>`,
+     *     where the recorded pid stays stale).
+     * Both are read-only observations of the OS process table.
+     */
+    private isSessionAlive(sessionId: string, pid: number | null | undefined, resumedIds: Set<string>): boolean {
+        return this.isPidAlive(pid) || resumedIds.has(sessionId);
+    }
+
+    /** Scans /proc cmdlines once per observation cycle (cheap, read-only). */
+    private scanResumedSessionIds(): Set<string> {
+        const found = new Set<string>();
+        try {
+            const entries = fs.readdirSync('/proc');
+            for (const entry of entries) {
+                if (entry.charCodeAt(0) < 48 || entry.charCodeAt(0) > 57) continue; // numeric dirs only
+                try {
+                    const raw = fs.readFileSync(`/proc/${entry}/cmdline`, 'utf-8');
+                    const cmdline = raw.replace(/\0/g, ' ');
+                    const match = cmdline.match(/--id\s+(\S+)/);
+                    if (match) found.add(match[1]);
+                } catch {
+                    // process exited meanwhile — ignore
+                }
+            }
+        } catch {
+            // /proc unavailable — fall back to pid checks only
+        }
+        return found;
+    }
+
     /** Reads a JSON file, tolerating mid-write partial reads. */
     private readJson<T>(filePath: string): T | null {
         try {
@@ -124,15 +160,18 @@ export class ClineSessionSource {
         );
 
         const nowTs = Date.now();
+        // One cheap /proc scan per cycle: which session ids are running
+        // right now (covers sessions resumed with `cline --id <id>`).
+        const resumedIds = this.scanResumedSessionIds();
         const snapshots: ClineSessionSnapshot[] = [];
         for (const row of rows) {
-            const snap = this.buildSnapshot(row, nowTs);
+            const snap = this.buildSnapshot(row, nowTs, resumedIds);
             if (snap) snapshots.push(snap);
         }
         return snapshots;
     }
 
-    private buildSnapshot(row: any, nowTs: number): ClineSessionSnapshot | null {
+    private buildSnapshot(row: any, nowTs: number, resumedIds: Set<string>): ClineSessionSnapshot | null {
         const sessionId = String(row.session_id || '');
         if (!sessionId) return null;
         const shortId = sessionId.includes('_') ? sessionId.split('_').pop()! : sessionId;
@@ -150,7 +189,7 @@ export class ClineSessionSource {
         const title = sanitizeTitle(String(meta?.metadata?.title || ''));
 
         const transcript = this.readTranscript(sessionId);
-        const pidAlive = this.isPidAlive(pid);
+        const pidAlive = this.isSessionAlive(sessionId, pid, resumedIds);
 
         const tail: TranscriptTail = {
             rawStatus,
@@ -185,6 +224,10 @@ export class ClineSessionSource {
             endedAt: row.ended_at || meta.ended_at || null,
             lastActivityAt: transcript?.lastTs ?? null,
             lastToolName: transcript?.lastAssistantToolName || transcript?.lastResultToolName || null,
+            /** Active file being edited — real evidence, null otherwise. */
+            activeFile: transcript?.activeFilePath
+                ? sanitizeTitle(transcript.activeFilePath)
+                : null,
             containerId: null,
             messageCount: transcript?.count ?? 0,
             lastMessageId: transcript?.lastMessageId ?? null,
@@ -220,7 +263,8 @@ export class ClineSessionSource {
             lastAssistantHasToolUse: false,
             lastResultToolName: null,
             lastToolInputHint: null,
-            pendingQuestion: false
+            pendingQuestion: false,
+            activeFilePath: null
         };
 
         // Walk the tail backwards to gather evidence.
@@ -230,6 +274,25 @@ export class ClineSessionSource {
             const msg = messages[i];
             const blocks = Array.isArray(msg?.content) ? msg.content : null;
             if (!blocks) continue;
+
+            if (msg.role === 'assistant') {
+                if (!info.activeFilePath) {
+                    for (const b of blocks) {
+                        if (b?.type === 'tool_use' && b?.name === 'editor' && b?.input?.path) {
+                            info.activeFilePath = String(b.input.path).slice(0, 160);
+                            break;
+                        }
+                    }
+                }
+                if (!lastQuestion) {
+                    for (const b of blocks) {
+                        if (b?.type === 'tool_use' && b?.name === 'ask_question') {
+                            lastQuestion = { msgIndex: i, toolUseId: String(b.id || '') };
+                            break;
+                        }
+                    }
+                }
+            }
 
             if (!lastAssistant && msg.role === 'assistant') {
                 lastAssistant = msg;

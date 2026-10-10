@@ -19,6 +19,13 @@ export class AgentState extends Schema {
     declare error: string;
     declare session: string;
     declare spriteIndex: number;
+    // ─── Block 3: real evidence fields (Inspector, FASE E) ───
+    declare activeFile: string;
+    declare workspace: string;
+    declare gitBranch: string;
+    declare sessionType: string;
+    declare lastTool: string;
+    declare updatedAt: number;
 }
 
 type("string")(AgentState.prototype, "id");
@@ -38,6 +45,12 @@ type("string")(AgentState.prototype, "status");
 type("string")(AgentState.prototype, "error");
 type("string")(AgentState.prototype, "session");
 type("number")(AgentState.prototype, "spriteIndex");
+type("string")(AgentState.prototype, "activeFile");
+type("string")(AgentState.prototype, "workspace");
+type("string")(AgentState.prototype, "gitBranch");
+type("string")(AgentState.prototype, "sessionType");
+type("string")(AgentState.prototype, "lastTool");
+type("number")(AgentState.prototype, "updatedAt");
 
 
 export class OfficeState extends Schema {

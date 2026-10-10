@@ -40,6 +40,9 @@ export interface ServerConfig {
     dshSource: 'none' | 'http';
     /** Optional token; when set, /api/external requires X-AgentOffice-Token. */
     externalApiToken?: string;
+    /** Block 3: grace (ms) showing completed/offline sessions before
+     *  their seat is released. 0 evicts terminal sessions immediately. */
+    terminalGraceMs: number;
 }
 
 /**
@@ -120,7 +123,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
         clineDataDir: expandHome((env.CLINE_DATA_DIR || '~/.cline/data').trim()),
         clinePollIntervalMs: clampInt(Number(env.CLINE_POLL_INTERVAL_MS || 5000) || 5000, 2000, 60000),
         dshSource: rawDshSource as 'none' | 'http',
-        externalApiToken: (env.EXTERNAL_API_TOKEN || '').trim() || undefined
+        externalApiToken: (env.EXTERNAL_API_TOKEN || '').trim() || undefined,
+        terminalGraceMs: clampInt(Number(env.TERMINAL_GRACE_MS || 60000) || 60000, 0, 600000)
     };
 }
 

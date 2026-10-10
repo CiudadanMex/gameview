@@ -24,6 +24,19 @@ export class AgentState extends Schema {
     @type('string') session: string;
     /** Sprite sheet index (char_0..char_5) for visual variety. */
     @type('number') spriteIndex: number;
+    // ─── Block 3: real evidence fields (Inspector, FASE E) ───
+    /** Active file being edited, when observable. */
+    @type('string') activeFile: string;
+    /** Workspace root of the session. */
+    @type('string') workspace: string;
+    /** Active Git branch. */
+    @type('string') gitBranch: string;
+    /** Session type: "interactive" | "batch". */
+    @type('string') sessionType: string;
+    /** Last observed tool name (real evidence). */
+    @type('string') lastTool: string;
+    /** Epoch ms of the last external update. */
+    @type('number') updatedAt: number;
 
     constructor(id: string, name: string, opts?: { role?: string; spriteIndex?: number }) {
         super();
@@ -44,6 +57,12 @@ export class AgentState extends Schema {
         this.error = '';
         this.session = '';
         this.spriteIndex = opts?.spriteIndex ?? 0;
+        this.activeFile = '';
+        this.workspace = '';
+        this.gitBranch = '';
+        this.sessionType = '';
+        this.lastTool = '';
+        this.updatedAt = 0;
     }
 }
 

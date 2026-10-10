@@ -58,6 +58,19 @@ export interface ExternalAgentStateUpdate {
     reputation?: number;
     riskLevel?: number;
     momentum?: number;
+    // ─── Block 3: real evidence fields for the Inspector (FASE E) ───
+    /** Active file being edited, when observable. */
+    activeFile?: string;
+    /** Workspace root of the session. */
+    workspace?: string;
+    /** Active Git branch of the session. */
+    gitBranch?: string;
+    /** Session type: "interactive" | "batch". */
+    sessionType?: string;
+    /** Last observed tool name (real evidence). */
+    lastTool?: string;
+    /** Epoch ms of this update (stale-event protection on the receiver). */
+    updatedAt?: number;
 }
 
 /** A task owned/created by an external agent. */

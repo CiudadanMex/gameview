@@ -9,6 +9,11 @@ export function getColyseusRoom() {
     return activeRoom;
 }
 
+// Block 3 (FASE F): build-time injected configuration (vite `define`).
+// Empty strings mean "not configured" → iframe-safe location fallback.
+declare const __AGENT_OFFICE_WS_URL__: string;
+declare const __AGENT_OFFICE_WS_PORT__: string;
+
 function resolveWsEndpoint(): string {
     if (typeof window !== 'undefined') {
         const queryWs = new URLSearchParams(window.location.search).get('ws');
@@ -19,13 +24,16 @@ function resolveWsEndpoint(): string {
         const savedWs = window.localStorage.getItem('agent-office:ws-url');
         if (savedWs && savedWs.trim()) return savedWs.trim();
     }
-    const globalEndpoint = typeof window !== 'undefined'
-        ? (window as any).__AGENT_OFFICE_WS_URL as string | undefined
-        : undefined;
-    if (globalEndpoint && globalEndpoint.trim()) return globalEndpoint.trim();
+    // Deployment-provided endpoint (Discord Activity, embeds) wins over
+    // the location-derived default — never a hardcoded localhost.
+    const configured = typeof __AGENT_OFFICE_WS_URL__ !== 'undefined'
+        ? String(__AGENT_OFFICE_WS_URL__ || '').trim()
+        : '';
+    if (configured) return configured;
     if (typeof window !== 'undefined') {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        return `${protocol}//${window.location.hostname}:3000`;
+        const port = String(__AGENT_OFFICE_WS_PORT__ || '').trim() || '3000';
+        return `${protocol}//${window.location.hostname}:${port}`;
     }
     return 'ws://localhost:3000';
 }
@@ -521,7 +529,14 @@ export class OfficeScene extends Phaser.Scene {
                 currentTask: agent.currentTask || '',
                 thought: agent.thought || '',
                 session: agent.session || '',
-                error: agent.error || ''
+                error: agent.error || '',
+                // Block 3 (FASE E): real evidence fields.
+                activeFile: agent.activeFile || '',
+                workspace: agent.workspace || '',
+                gitBranch: agent.gitBranch || '',
+                sessionType: agent.sessionType || '',
+                lastTool: agent.lastTool || '',
+                updatedAt: Number(agent.updatedAt || 0)
             }
         }));
     }
@@ -642,6 +657,10 @@ export class OfficeScene extends Phaser.Scene {
                     let prevX = agent.x;
                     let prevY = agent.y;
                     let lastAction = '';
+                    // Block 3: last status shown (guards the status emote
+                    // against restarts on every 5s poll).
+                    let lastStatusEmote = '';
+                    let lastThought = '';
 
                     agent.onChange(() => {
                         this.tweens.add({
@@ -666,32 +685,53 @@ export class OfficeScene extends Phaser.Scene {
                             else { s.stop(); }
                         }
 
-                        // --- EMOTE BUBBLES based on action ---
-                        const emoteMap: Record<string, string> = {
+                        // --- EMOTE BUBBLES ---
+                        // Block 3: STATUS-based emotes take precedence for
+                        // real Cline states (they distinguish working /
+                        // editing / reading / testing / waiting / blocked
+                        // even when the underlying sprite action is the
+                        // same). Falls back to the original action map
+                        // (demo/internal agents).
+                        const statusEmoteMap: Record<string, string> = {
+                            'working': '💻', 'editing': '✏️', 'testing': '🧪',
+                            'reading': '📖', 'waiting': '⏳', 'waiting_input': '⏳',
+                            'blocked': '🚨', 'completed': '✅', 'offline': '💤',
+                            'idle': '😌', 'running': '💻', 'thinking': '💡',
+                            'acting': '💻', 'error': '🚨'
+                        };
+                        const actionEmoteMap: Record<string, string> = {
                             'work': '💻', 'talk': '💬', 'idle': '😌',
                             'use_tool': '🔧', 'move': '🚶', 'think': '💡'
                         };
-                        const emote = emoteMap[agent.action] || '';
-                        if (emote && agent.action !== lastAction) {
+                        const status = String(agent.status || '');
+                        const statusEmote = statusEmoteMap[status] || '';
+                        // Ambient coffee break: idle agent walking (Block 3).
+                        const ambientBreak = status === 'idle' && agent.action === 'move';
+                        const emote = ambientBreak ? '☕'
+                            : (statusEmote || actionEmoteMap[agent.action] || '');
+                        const emoteKey = ambientBreak ? '☕' : (statusEmote || agent.action);
+                        if (emote && emoteKey !== lastStatusEmote) {
                             emoteBubble.setText(emote);
                             emoteBubble.setVisible(true);
                             // Auto-hide after 3s
                             this.time.delayedCall(3000, () => emoteBubble.setVisible(false));
+                            lastStatusEmote = emoteKey;
                         }
 
-                        // Thought bubble
-                        if (agent.thought && agent.thought !== '') {
+                        // Thought bubble — only when it actually CHANGED,
+                        // so periodic polling updates don't pin it open.
+                        if (agent.thought && agent.thought !== lastThought) {
                             thoughtBubble.setText(agent.thought);
                             thoughtBubble.setVisible(true);
                             this.time.delayedCall(6000, () => thoughtBubble.setVisible(false));
                         }
 
-                        // --- SYSTEM LOG EVENT ---
-                        if (agent.action !== lastAction || agent.thought !== '') {
+                        // --- SYSTEM LOG EVENT --- (only on real changes)
+                        if (agent.action !== lastAction || (agent.thought && agent.thought !== lastThought)) {
                             eventBus.dispatchEvent(new CustomEvent('activity-log', {
                                 detail: {
                                     agent: agent.name,
-                                    action: agent.action,
+                                    action: statusEmote ? `${status}` : agent.action,
                                     thought: agent.thought,
                                     time: new Date().toLocaleTimeString()
                                 }
@@ -712,6 +752,7 @@ export class OfficeScene extends Phaser.Scene {
                         lastAction = agent.action;
                         prevX = agent.x;
                         prevY = agent.y;
+                        lastThought = agent.thought || '';
 
                         // Keep the AgentInspector panel in sync while focused.
                         if (this.focusAgentId === sessionId) {

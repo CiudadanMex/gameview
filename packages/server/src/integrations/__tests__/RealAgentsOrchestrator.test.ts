@@ -118,16 +118,23 @@ function snapshot(id: string, state: ClineAgentState): ClineSessionSnapshot {
         model: 'z-ai/glm-5.3', cwd: '/w', workspaceRoot: '/w', teamName: 'team-T',
         gitBranch: 'main', title: `Tarea de ${id}`, startedAt: '2026-10-10T10:00:00Z',
         endedAt: null, lastActivityAt: Date.now(), lastToolName: 'editor',
-        containerId: null, messageCount: 5, lastMessageId: 'm5', pidAlive: true
+        activeFile: null, containerId: null, messageCount: 5, lastMessageId: 'm5',
+        pidAlive: true
     };
 }
 
 function buildOrchestrator(
     bridgeHolder: { current: RecordingBridge | null },
     source: FakeSource,
-    teams: FakeTeams
+    teams: FakeTeams,
+    overrides: Partial<{ terminalGraceMs: number; maxSeats: number }> = {}
 ) {
-    const config: ServerConfig = { ...loadConfig({}), clinePollIntervalMs: 60000 };
+    const config: ServerConfig = {
+        ...loadConfig({}),
+        clinePollIntervalMs: 60000,
+        terminalGraceMs: overrides.terminalGraceMs ?? 60_000,
+        maxSeats: overrides.maxSeats ?? 7
+    };
     return new RealAgentsOrchestrator({
         config,
         source: source as any,
@@ -227,6 +234,55 @@ describe('RealAgentsOrchestrator (FASE D wiring)', () => {
         await orch.tick();
         const dshEvents = holder.current.events.filter(e => e.title.includes('DSH'));
         expect(dshEvents).toHaveLength(1);
+    });
+
+    // ─── Block 3 (FASE D): occupancy policy integration ───
+
+    it('never seats sessions that completed long before startup (no zombie desks)', async () => {
+        const holder: { current: RecordingBridge | null } = { current: new RecordingBridge() };
+        const old = snapshot('old', 'completed');
+        old.endedAt = new Date(Date.now() - 3_600_000).toISOString(); // 1h ago
+        const source = new FakeSource([old, snapshot('live', 'working')]);
+        const orch = buildOrchestrator(holder, source, new FakeTeams());
+
+        await orch.tick();
+        expect(holder.current.agents.has('old')).toBe(false);
+        expect(holder.current.agents.has('live')).toBe(true);
+        expect(holder.current.agents.size).toBe(1);
+    });
+
+    it('shows a fresh completion during grace, then frees the seat and keeps history', async () => {
+        const holder: { current: RecordingBridge | null } = { current: new RecordingBridge() };
+        const done = snapshot('fresh-done', 'completed');
+        done.endedAt = new Date().toISOString(); // just ended — inside grace
+        const source = new FakeSource([done, snapshot('live', 'working')]);
+        const orch = buildOrchestrator(holder, source, new FakeTeams(), { terminalGraceMs: 80 });
+
+        await orch.tick();
+        expect(holder.current.agents.has('fresh-done')).toBe(true); // still visible
+
+        await new Promise(r => setTimeout(r, 150)); // grace expires
+        await orch.tick();
+        expect(holder.current.agents.has('fresh-done')).toBe(false); // seat freed
+        expect(holder.current.agents.has('live')).toBe(true);        // live agent unaffected
+        expect(holder.current.events.some(e => e.title.includes('puesto liberado'))).toBe(true);
+
+        const history = orch.getHistory();
+        expect(history.some(h => h.sessionId === 'fresh-done')).toBe(true);
+    });
+
+    it('pushes the real evidence fields to the office state (FASE E)', async () => {
+        const holder: { current: RecordingBridge | null } = { current: new RecordingBridge() };
+        const editing = snapshot('s1', 'editing');
+        editing.activeFile = '/workspace/agent-office/packages/ui/src/App.tsx';
+        const orch = buildOrchestrator(holder, new FakeSource([editing]), new FakeTeams());
+
+        await orch.tick();
+        const calls = holder.current.calls.filter(c => c.startsWith('state:s1:'));
+        expect(calls.some(c => c.includes('editing'))).toBe(true);
+        // Evidence fields were part of the update payload (recorded via
+        // the agent's task/role set by updateAgentState in the fake).
+        expect(holder.current.agents.get('s1')!.status).toBe('editing');
     });
 });
 

@@ -2,6 +2,7 @@ import { Express, Request, Response } from 'express';
 import { OfficeRoom } from '../rooms/OfficeRoom';
 import { ServerConfig } from '../config';
 import { ExternalBridge } from './ExternalBridge';
+import { getRealAgentsRuntime } from '../integrations';
 
 /**
  * REST surface of the external orchestration interface
@@ -99,7 +100,13 @@ export function registerExternalRoutes(app: Express, config: ServerConfig): void
                 maxSeats: config.maxSeats
             });
         }
-        res.json({ ok: true, ...bridge.getStatus() });
+        // Block 3: historical (evicted) sessions — preserved, never active.
+        const runtime = getRealAgentsRuntime();
+        res.json({
+            ok: true,
+            ...bridge.getStatus(),
+            history: runtime ? runtime.getHistory() : []
+        });
     });
 
     if (!config.externalApiEnabled) {

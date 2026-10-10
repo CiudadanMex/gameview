@@ -98,6 +98,11 @@ export class SeatAllocator {
         return { index: seatNumber, target };
     }
 
+    /** Walk target of a seat number (1-based), or null when out of range. */
+    seatTarget(index: number): SeatTarget | null {
+        return this.targets[index - 1] ?? null;
+    }
+
     /** Clears all assignments (used on room dispose). */
     reset(): void {
         this.seatByAgent.clear();

@@ -19,6 +19,15 @@ export default defineConfig(({ mode }) => {
         plugins: [
             react()
         ],
+        // Block 3 (FASE F — Discord/embedding readiness): the WebSocket
+        // endpoint is BUILD-TIME configurable so the UI never depends on
+        // a hardcoded host/port. Deployments (iframe, /esfericulos)
+        // inject VITE_WS_URL / VITE_WS_PORT; local dev falls back to
+        // window.location.hostname (iframe-safe).
+        define: {
+            __AGENT_OFFICE_WS_URL__: JSON.stringify(env.VITE_WS_URL || ''),
+            __AGENT_OFFICE_WS_PORT__: JSON.stringify(env.VITE_WS_PORT || '')
+        },
         server: {
             host: uiHost,
             port: uiPort,

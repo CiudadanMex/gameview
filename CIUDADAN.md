@@ -78,6 +78,23 @@ Instalación reproducible (máquinas Oracle): [`docs/ciudadan/INSTALL.md`](./doc
 - **Seguridad**: todo local (127.0.0.1), sanitización de secretos, token
   opcional `EXTERNAL_API_TOKEN`, polling de bajo impacto (5 s, min 2 s).
 
+## Bloque 3 — Animaciones inteligentes basadas en actividad real
+
+- **Controlador visual** (`AgentVisualController`): estado → destino →
+  animación existente (sin teletransportes, sin reinicios por polling,
+  estaciones de lectura/pruebas, pausas ambientales ☕ claramente no-laborales).
+- **Política de ocupación** (`TERMINAL_GRACE_MS`, defecto 60 s): prioridad
+  absoluta a sesiones activas; completadas visibles solo durante la gracia
+  y luego liberan puesto; finalizaciones antiguas nunca ocupan "zombis";
+  historial preservado vía REST/eventos. Ver
+  [`docs/ciudadan/VISUAL_BEHAVIOR.md`](./docs/ciudadan/VISUAL_BEHAVIOR.md).
+- **Inspector renovado**: distingue ⚙ estado derivado / 🔎 actividad real
+  observada / — no disponible; muestra archivo activo, rama Git, workspace,
+  tipo de sesión, última herramienta y hora de actualización.
+- **Preparación Discord**: endpoint WS configurable en build
+  (`VITE_WS_URL`/`VITE_WS_PORT`), `Phaser.Scale.RESIZE` existente,
+  renderizado separado de datos — listo para `/esfericulos` (sin integrar).
+
 ## Puertos y variables
 
 | Variable | Defecto | Descripción |

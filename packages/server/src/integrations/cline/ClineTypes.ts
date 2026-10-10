@@ -65,6 +65,8 @@ export interface ClineSessionSnapshot {
     lastActivityAt: number | null;
     /** Last tool used (evidence for the derived state). */
     lastToolName: string | null;
+    /** Active file (from the last editor tool_use) — null if unknown. */
+    activeFile: string | null;
     /** Container id — null: no containers in this environment. */
     containerId: null;
     messageCount: number;

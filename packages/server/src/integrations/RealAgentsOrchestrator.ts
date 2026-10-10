@@ -7,6 +7,7 @@ import { ClineSessionSnapshot, ClineAgentState } from './cline/ClineTypes';
 import { DshAdapter } from './dsh/DshAdapter';
 import { ClineTeamsObserver } from './dsh/ClineTeamsObserver';
 import { ServerConfig } from '../config';
+import { OccupancyPolicy } from './occupancy/OccupancyPolicy';
 
 /**
  * Ciudadan AgentOffice — Block 2 (FASE D).
@@ -77,9 +78,27 @@ export class RealAgentsOrchestrator {
     /** Bridge instance of the current generation (change → re-register). */
     private bridgeGeneration: ExternalOrchestratorAdapter | null = null;
     private announcedDshState = false;
+    /** Block 3 (FASE D): desk occupancy policy + its bookkeeping. */
+    private readonly policy: OccupancyPolicy;
+    private firstSeenTerminalAt = new Map<string, number>();
+    /** Historical (evicted) sessions — preserved, never shown as active. */
+    private history: Array<{
+        sessionId: string; name: string; role: string;
+        state: string; endedAt: number | null; removedAt: number;
+    }> = [];
     private readonly log = (msg: string) => console.log(`[RealAgents] ${msg}`);
 
-    constructor(private readonly deps: OrchestratorDeps) {}
+    constructor(private readonly deps: OrchestratorDeps) {
+        this.policy = new OccupancyPolicy(
+            this.deps.config.maxSeats,
+            this.deps.config.terminalGraceMs
+        );
+    }
+
+    /** Historical sessions (evicted after grace) — for REST/reporting. */
+    getHistory() {
+        return this.history.slice();
+    }
 
     start(): void {
         if (this.timer) return;
@@ -113,15 +132,66 @@ export class RealAgentsOrchestrator {
                 this.bridgeGeneration = bridge;
                 this.registered.clear();
                 this.lastStatus.clear();
+                this.firstSeenTerminalAt.clear();
                 this.announcedDshState = false;
             }
 
             const sessions = await this.deps.source.listSessions();
             if (sessions.length === 0) return;
 
-            // 1) Register new sessions (stable ids, no fake agents).
-            for (const session of sessions) {
-                if (this.registered.has(session.sessionId)) continue;
+            // ─── Block 3 (FASE D): occupancy policy ───
+            // Active sessions have seat priority; terminal sessions are
+            // shown only during the grace window, then their seat is
+            // released (history is preserved below).
+            const now = Date.now();
+            const decision = this.policy.select(
+                sessions.map(s => ({
+                    sessionId: s.sessionId,
+                    state: s.state,
+                    lastActivityAt: s.lastActivityAt,
+                    endedAt: s.endedAt ? (Date.parse(s.endedAt) || null) : null
+                })),
+                now,
+                this.firstSeenTerminalAt
+            );
+
+            // 1) Evict terminal sessions past their grace — release seats.
+            for (const id of decision.evict) {
+                const session = sessions.find(s => s.sessionId === id);
+                if (!session) continue;
+                if (this.registered.has(id)) {
+                    // Farewell event BEFORE removing (pushEvent needs the agent).
+                    bridge.pushEvent(id, {
+                        type: 'session',
+                        title: `${session.name}: puesto liberado`,
+                        body: `Sesión ${session.state}; conservada en el historial.`
+                    });
+                    bridge.removeAgent(id);
+                    this.registered.delete(id);
+                    this.lastStatus.delete(id);
+                    this.log(`evicted ${session.name} (terminal, grace over) — seat freed`);
+                }
+                // Historical record for EVERY evicted terminal (seated or
+                // not): real data, preserved, never shown as an active agent.
+                if (!this.history.some(h => h.sessionId === id)) {
+                    this.history.push({
+                        sessionId: id,
+                        name: session.name,
+                        role: session.role,
+                        state: session.state,
+                        endedAt: session.endedAt ? (Date.parse(session.endedAt) || null) : null,
+                        removedAt: now
+                    });
+                    if (this.history.length > 20) this.history.shift();
+                }
+                this.firstSeenTerminalAt.delete(id);
+            }
+
+            // 2) Register new eligible sessions (stable ids, no fake agents).
+            for (const id of decision.seat) {
+                if (this.registered.has(id)) continue;
+                const session = sessions.find(s => s.sessionId === id);
+                if (!session) continue;
                 const result = bridge.registerAgent({
                     id: session.sessionId,
                     name: session.name,
@@ -134,32 +204,42 @@ export class RealAgentsOrchestrator {
                     this.log(`could not register ${session.sessionId}: ${result.error}`);
                     continue;
                 }
-                // Initial session info (model, workspace, git branch).
                 this.pushSessionInfo(bridge, session);
             }
 
-            // 2) Push state changes + reflect last known activity.
-            for (const session of sessions) {
-                if (!this.registered.has(session.sessionId)) continue;
+            // 3) Push state changes + REAL evidence fields (FASE E).
+            for (const id of decision.seat) {
+                const session = sessions.find(s => s.sessionId === id);
+                if (!session || !this.registered.has(id)) continue;
                 const officeStatus = toOfficeStatus(session.state);
-                const changed = this.lastStatus.get(session.sessionId) !== officeStatus;
-                this.lastStatus.set(session.sessionId, officeStatus);
+                const changed = this.lastStatus.get(id) !== officeStatus;
+                this.lastStatus.set(id, officeStatus);
 
-                const update = bridge.updateAgentState(session.sessionId, {
+                const update = bridge.updateAgentState(id, {
                     status: officeStatus,
                     currentTask: session.title,
-                    thought: activityThought(session)
+                    thought: activityThought(session),
+                    activeFile: session.activeFile || '',
+                    workspace: session.workspaceRoot || session.cwd || '',
+                    gitBranch: session.gitBranch || '',
+                    sessionType: session.interactive ? 'interactive' : 'batch',
+                    lastTool: session.lastToolName || '',
+                    updatedAt: now
                 });
                 if (!update.ok) {
-                    this.log(`state update failed for ${session.sessionId}: ${update.error}`);
+                    this.log(`state update failed for ${id}: ${update.error}`);
                     continue;
                 }
                 if (changed) {
                     // Announce meaningful transitions in the highlights feed.
-                    bridge.pushEvent(session.sessionId, {
+                    const terminal = officeStatus === 'completed' || officeStatus === 'offline';
+                    const graceLeft = decision.inGrace.get(id);
+                    bridge.pushEvent(id, {
                         type: 'session',
                         title: `${session.name}: ${officeStatus}`,
-                        body: session.title || ''
+                        body: terminal && graceLeft !== undefined
+                            ? `Liberará su puesto en ~${Math.round(graceLeft / 1000)}s (gracia configurada).`
+                            : session.title || ''
                     });
                 }
             }

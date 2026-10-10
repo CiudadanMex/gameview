@@ -8,6 +8,7 @@ import { loadConfig, ServerConfig, OrchestrationMode } from '../config';
 import { ExternalBridge, OfficeGateway } from '../external/ExternalBridge';
 import { SeatAllocator } from '../external/SeatAllocator';
 import { MockExternalOrchestrator } from '../external/MockExternalOrchestrator';
+import { AgentVisualController } from '../integrations/visual/AgentVisualController';
 
 interface HighlightEvent {
     type: string;
@@ -49,6 +50,10 @@ export class OfficeRoom extends Room<OfficeState> {
     private seatAllocator = new SeatAllocator();
     private externalBridge?: ExternalBridge;
     private demoOrchestrator?: MockExternalOrchestrator;
+    /** Block 3: visual controller for external agents (state→behavior). */
+    private visualController?: AgentVisualController;
+    /** Block 3: movement tick counter (drives ambient scheduling). */
+    private movementTick = 0;
     private hireCount = 0; // Counter for generating unique IDs
     private memoryStore = new MemoryStore();
     private sessionId = `session_${Date.now()}`;
@@ -119,6 +124,9 @@ export class OfficeRoom extends Room<OfficeState> {
             // No OllamaAdapter, no ToolExecutor, no think loop, no fake
             // agents. Agents arrive through the external interface only.
             this.externalBridge = new ExternalBridge(this.buildGateway());
+            // Block 3: visual controller — external states drive where the
+            // agent walks and which animation/emote it shows.
+            this.visualController = new AgentVisualController({ seats: this.seatAllocator });
             if (this.serverConfig.externalDemoMode) {
                 this.demoOrchestrator = new MockExternalOrchestrator(this.externalBridge);
                 this.demoOrchestrator.start();
@@ -331,7 +339,11 @@ export class OfficeRoom extends Room<OfficeState> {
             hasAgent: (id) => this.state.agents.has(id),
             getAgentState: (id) => this.state.agents.get(id),
             createAgent: (id, name, opts) => this.state.createAgent(id, name, opts),
-            removeAgent: (id) => this.state.removeAgent(id),
+            removeAgent: (id) => {
+                this.state.removeAgent(id);
+                // Forget visual bookkeeping (ambient breaks, etc.).
+                this.visualController?.forget(id);
+            },
             broadcastChat: (sender, text) => this.broadcast('chat', { sender, text }),
             broadcastTaskUpdate: (payload) => this.broadcast('task-update', payload),
             emitHighlight: (type, title, body, agentId) => this.emitHighlight(type, title, body, agentId),
@@ -592,19 +604,30 @@ export class OfficeRoom extends Room<OfficeState> {
         this.demoTickCount++;
         if (this.demoTickCount >= 5) {
             this.demoTickCount = 0;
+            this.movementTick++;
             this.state.agents.forEach((agent, key) => {
                 // Default targets: agent's own desk chair.
-                // External agents walk to the seat assigned by the
-                // SeatAllocator; internal agents keep the original
-                // furnitureTargets lookup (unchanged behavior).
+                // Block 3: EXTERNAL agents (seated) are driven by the
+                // visual controller — state → behavior → destination.
+                // INTERNAL agents keep the original furnitureTargets
+                // lookup (unchanged upstream behavior).
                 const seat = this.seatAllocator.seatOf(key);
-                const deskKey = `${key}-desk`;
-                const target = seat
-                    ? seat.target
-                    : (this.furnitureTargets[deskKey] || { x: 5, y: 18 });
+                let target: { x: number; y: number };
+                if (seat && this.visualController) {
+                    const behavior = this.visualController.behaviorFor(
+                        key, String(agent.status || ''), this.movementTick
+                    );
+                    target = this.visualController.resolveTarget(key, behavior, seat.index);
+                } else {
+                    const deskKey = `${key}-desk`;
+                    target = this.furnitureTargets[deskKey] || { x: 5, y: 18 };
+                }
 
-                // If agent action is 'talk', move towards the other agent instead
-                if (agent.action === 'talk') {
+                // If agent action is 'talk', move towards the other agent
+                // instead — original behavior. Only for NON-seated agents:
+                // external agents are governed by the visual controller,
+                // so their movement never contradicts their real state.
+                if (agent.action === 'talk' && !seat) {
                     let closest: { x: number; y: number } | null = null;
                     let minDist = Infinity;
                     this.state.agents.forEach((other, otherKey) => {

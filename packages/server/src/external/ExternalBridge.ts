@@ -190,6 +190,18 @@ export class ExternalBridge implements ExternalOrchestratorAdapter {
         if (update.riskLevel !== undefined) state.riskLevel = clamp01(Number(update.riskLevel) || 0);
         if (update.momentum !== undefined) state.momentum = clamp01(Number(update.momentum) || 0);
 
+        // ─── Block 3: real evidence fields (Inspector, FASE E) ───
+        if (update.activeFile !== undefined) state.activeFile = truncate(String(update.activeFile), 160);
+        if (update.workspace !== undefined) state.workspace = truncate(String(update.workspace), 120);
+        if (update.gitBranch !== undefined) state.gitBranch = truncate(String(update.gitBranch), 80);
+        if (update.sessionType !== undefined) state.sessionType = truncate(String(update.sessionType), 20);
+        if (update.lastTool !== undefined) state.lastTool = truncate(String(update.lastTool), 40);
+        if (update.updatedAt !== undefined) {
+            const at = Number(update.updatedAt) || 0;
+            // Stale-event protection: never move the update clock backwards.
+            state.updatedAt = Math.max(state.updatedAt, at);
+        }
+
         return { ok: true };
     }
 

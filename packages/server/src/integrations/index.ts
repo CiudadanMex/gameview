@@ -9,6 +9,14 @@ import type { ExternalOrchestratorAdapter } from '@agent-office/core';
 export { ClineSessionSource, ClineTeamsObserver, RealAgentsOrchestrator };
 export type { DshAdapter, DshTask, DshObservation } from './dsh/DshAdapter';
 
+/** Registry of the running orchestrator (for REST history reporting). */
+let activeOrchestrator: RealAgentsOrchestrator | null = null;
+
+/** Access to the running real-agents runtime (may be null). */
+export function getRealAgentsRuntime(): RealAgentsOrchestrator | null {
+    return activeOrchestrator;
+}
+
 /**
  * Builds the Block 2 real-agents orchestrator from the server config.
  * The bridge resolver re-evaluates on every cycle so the orchestrator
@@ -37,5 +45,7 @@ export function createRealAgentsOrchestrator(config: ServerConfig): RealAgentsOr
         return bridge;
     };
 
-    return new RealAgentsOrchestrator({ config, source, teams, dsh, bridgeResolver });
+    const orchestrator = new RealAgentsOrchestrator({ config, source, teams, dsh, bridgeResolver });
+    activeOrchestrator = orchestrator;
+    return orchestrator;
 }
