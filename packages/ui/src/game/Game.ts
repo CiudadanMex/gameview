@@ -36,6 +36,8 @@ export class OfficeScene extends Phaser.Scene {
     private agentSprites: Map<string, Phaser.GameObjects.Container> = new Map();
     private statusText!: Phaser.GameObjects.Text;
     private followTarget: Phaser.GameObjects.Container | null = null;
+    /** Id of the agent the inspector panel is currently showing (null = none). */
+    private focusAgentId: string | null = null;
     private cinematicMode = true;
     private cinematicReleaseAt = 0;
     private customLayoutLayer?: Phaser.GameObjects.Container;
@@ -50,14 +52,14 @@ export class OfficeScene extends Phaser.Scene {
     }
 
     preload() {
-        this.load.spritesheet('char_0', '/assets/characters/char_0.png', {
-            frameWidth: 16,
-            frameHeight: 32
-        });
-        this.load.spritesheet('char_1', '/assets/characters/char_1.png', {
-            frameWidth: 16,
-            frameHeight: 32
-        });
+        // Load all available character sprite sheets (char_0..char_5).
+        // External agents get a distinct sprite per seat (seat 7 wraps to 0).
+        for (let i = 0; i < 6; i++) {
+            this.load.spritesheet(`char_${i}`, `/assets/characters/char_${i}.png`, {
+                frameWidth: 16,
+                frameHeight: 32
+            });
+        }
     }
 
     create() {
@@ -69,20 +71,16 @@ export class OfficeScene extends Phaser.Scene {
 
             let hasAnims = false;
 
-            // Create animations for character 0
-            if (this.textures.exists('char_0')) {
-                const anims = this.anims;
-                anims.create({ key: 'char_0-walk-down', frames: anims.generateFrameNumbers('char_0', { start: 0, end: 2 }), frameRate: 8, repeat: -1 });
-                anims.create({ key: 'char_0-walk-up', frames: anims.generateFrameNumbers('char_0', { start: 7, end: 9 }), frameRate: 8, repeat: -1 });
-                anims.create({ key: 'char_0-walk-right', frames: anims.generateFrameNumbers('char_0', { start: 14, end: 16 }), frameRate: 8, repeat: -1 });
-                hasAnims = true;
-            }
-            // Create animations for character 1
-            if (this.textures.exists('char_1')) {
-                const anims = this.anims;
-                anims.create({ key: 'char_1-walk-down', frames: anims.generateFrameNumbers('char_1', { start: 0, end: 2 }), frameRate: 8, repeat: -1 });
-                anims.create({ key: 'char_1-walk-up', frames: anims.generateFrameNumbers('char_1', { start: 7, end: 9 }), frameRate: 8, repeat: -1 });
-                anims.create({ key: 'char_1-walk-right', frames: anims.generateFrameNumbers('char_1', { start: 14, end: 16 }), frameRate: 8, repeat: -1 });
+            // Create walk animations for every loaded character sheet.
+            const anims = this.anims;
+            for (let i = 0; i < 6; i++) {
+                const key = `char_${i}`;
+                if (this.textures.exists(key)) {
+                    anims.create({ key: `${key}-walk-down`, frames: anims.generateFrameNumbers(key, { start: 0, end: 2 }), frameRate: 8, repeat: -1 });
+                    anims.create({ key: `${key}-walk-up`, frames: anims.generateFrameNumbers(key, { start: 7, end: 9 }), frameRate: 8, repeat: -1 });
+                    anims.create({ key: `${key}-walk-right`, frames: anims.generateFrameNumbers(key, { start: 14, end: 16 }), frameRate: 8, repeat: -1 });
+                    hasAnims = true;
+                }
             }
 
             console.log("Animations created: ", hasAnims);
@@ -282,6 +280,14 @@ export class OfficeScene extends Phaser.Scene {
             drawWorkstation(64, 240, '💻 Alice\'s Desk', true);
             drawWorkstation(64, 320, '💻 Bob\'s Desk', true);
             drawWorkstation(64, 400, '💻 Vacant', false);
+
+            // ─── Additional fixed seats (Ciudadan AgentOffice) ───
+            // Static workstations for seats 4..7. The office has EXACTLY
+            // seven seats; no dynamic expansion is supported.
+            drawWorkstation(224, 240, '💻 Puesto 4', false);
+            drawWorkstation(224, 320, '💻 Puesto 5', false);
+            drawWorkstation(384, 240, '💻 Puesto 6', false);
+            drawWorkstation(496, 240, '💻 Puesto 7', false);
 
             // ═══════════════════════════════════════════
             //  COFFEE & PANTRY AREA
@@ -501,6 +507,25 @@ export class OfficeScene extends Phaser.Scene {
         }
     }
 
+    /**
+     * Publishes focused agent data (id, name, role, status, task, errors...)
+     * for the React AgentInspector panel through the event bus.
+     */
+    private emitInspectorPayload(agent: any, sessionId: string) {
+        eventBus.dispatchEvent(new CustomEvent('agent-focus', {
+            detail: {
+                id: sessionId,
+                name: agent.name,
+                role: agent.role || '',
+                status: agent.status || '',
+                currentTask: agent.currentTask || '',
+                thought: agent.thought || '',
+                session: agent.session || '',
+                error: agent.error || ''
+            }
+        }));
+    }
+
     async connectToServer() {
         try {
             console.log("Connecting to Colyseus...");
@@ -546,8 +571,12 @@ export class OfficeScene extends Phaser.Scene {
                     const container = this.add.container(agent.x * 16, agent.y * 16);
 
                     let sprite;
-                    let charKey = 'char_0';
-                    if (agent.name.includes('Bob')) charKey = 'char_1';
+                    // Server-assigned sprite index (external mode gives each
+                    // seat a distinct character); internal mode keeps the
+                    // original name-based assignment (Bob → char_1).
+                    const spriteIdx = Number(agent.spriteIndex ?? 0);
+                    const safeIdx = Number.isInteger(spriteIdx) && spriteIdx >= 0 && spriteIdx < 6 ? spriteIdx : 0;
+                    let charKey = `char_${safeIdx}`;
 
                     if (this.textures.exists(charKey)) {
                         sprite = this.add.sprite(0, -8, charKey, 0);
@@ -594,6 +623,7 @@ export class OfficeScene extends Phaser.Scene {
                         if (this.followTarget === container) {
                             // Unfollow on second click
                             this.followTarget = null;
+                            this.focusAgentId = null;
                             focusRing.setVisible(false);
                             eventBus.dispatchEvent(new CustomEvent('agent-focus', { detail: null }));
                         } else {
@@ -603,8 +633,9 @@ export class OfficeScene extends Phaser.Scene {
                                 prevRing?.setVisible(false);
                             }
                             this.followTarget = container;
+                            this.focusAgentId = sessionId;
                             focusRing.setVisible(true);
-                            eventBus.dispatchEvent(new CustomEvent('agent-focus', { detail: { name: agent.name, id: sessionId } }));
+                            this.emitInspectorPayload(agent, sessionId);
                         }
                     });
 
@@ -681,6 +712,11 @@ export class OfficeScene extends Phaser.Scene {
                         lastAction = agent.action;
                         prevX = agent.x;
                         prevY = agent.y;
+
+                        // Keep the AgentInspector panel in sync while focused.
+                        if (this.focusAgentId === sessionId) {
+                            this.emitInspectorPayload(agent, sessionId);
+                        }
                     });
                 });
 

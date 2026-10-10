@@ -13,6 +13,12 @@ export class AgentState extends Schema {
     declare reputation: number;
     declare riskLevel: number;
     declare momentum: number;
+    // ─── External interface fields (Ciudadan AgentOffice) ───
+    declare role: string;
+    declare status: string;
+    declare error: string;
+    declare session: string;
+    declare spriteIndex: number;
 }
 
 type("string")(AgentState.prototype, "id");
@@ -27,6 +33,11 @@ type("number")(AgentState.prototype, "mood");
 type("number")(AgentState.prototype, "reputation");
 type("number")(AgentState.prototype, "riskLevel");
 type("number")(AgentState.prototype, "momentum");
+type("string")(AgentState.prototype, "role");
+type("string")(AgentState.prototype, "status");
+type("string")(AgentState.prototype, "error");
+type("string")(AgentState.prototype, "session");
+type("number")(AgentState.prototype, "spriteIndex");
 
 
 export class OfficeState extends Schema {
