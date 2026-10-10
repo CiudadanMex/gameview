@@ -43,6 +43,21 @@ export interface ServerConfig {
     /** Block 3: grace (ms) showing completed/offline sessions before
      *  their seat is released. 0 evicts terminal sessions immediately. */
     terminalGraceMs: number;
+    // ─── Block 4: interactive control center ───
+    /** MANDATORY server-side credential for ANY control write action.
+     *  When empty, control write endpoints answer 503 (they never open
+     *  silently). The operator configures it and supplies it from the UI. */
+    controlToken?: string;
+    /** Master switch for instruction dispatch to real Cline sessions.
+     *  Disabled by default: dispatch also requires a validated adapter
+     *  (see ClineControlAdapter capabilities). */
+    instructionDispatchEnabled: boolean;
+    /** Absolute path of the @cline/core ESM bundle (Cline SDK). */
+    clineSdkPath: string;
+    /** Hub discovery record (url + authToken, read in-memory only). */
+    clineHubRecordPath: string;
+    /** Max instruction requests per minute (global rate limit). */
+    instructionRatePerMinute: number;
 }
 
 /**
@@ -124,7 +139,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
         clinePollIntervalMs: clampInt(Number(env.CLINE_POLL_INTERVAL_MS || 5000) || 5000, 2000, 60000),
         dshSource: rawDshSource as 'none' | 'http',
         externalApiToken: (env.EXTERNAL_API_TOKEN || '').trim() || undefined,
-        terminalGraceMs: clampInt(Number(env.TERMINAL_GRACE_MS || 60000) || 60000, 0, 600000)
+        terminalGraceMs: clampInt(Number(env.TERMINAL_GRACE_MS || 60000) || 60000, 0, 600000),
+        controlToken: (env.AGENTOFFICE_CONTROL_TOKEN || '').trim() || undefined,
+        instructionDispatchEnabled: toBool(env.INSTRUCTION_DISPATCH_ENABLED, false),
+        clineSdkPath: (env.CLINE_SDK_PATH || '/usr/lib/node_modules/cline/node_modules/@cline/core/dist/index.js').trim(),
+        clineHubRecordPath: (env.CLINE_HUB_RECORD_PATH || '~/.cline/data/locks/hub/production.json').trim().replace(/^~/, () => process.env.HOME || ''),
+        instructionRatePerMinute: clampInt(Number(env.INSTRUCTION_RATE_PER_MINUTE || 10) || 10, 1, 120)
     };
 }
 

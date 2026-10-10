@@ -97,6 +97,17 @@ export function AgentInspector() {
                 </p>
             ) : null}
 
+            {/* Allowed actions (Block 4) — honest availability */}
+            <div style={{ padding: '6px 8px', backgroundColor: 'rgba(108,92,231,0.08)', borderRadius: 6 }}>
+                <p style={{ margin: 0, fontSize: '10px', color: '#b8a9d4' }}>⚙ Acciones permitidas</p>
+                <p style={{ margin: '3px 0 0 0', fontSize: '10px', color: '#aaa' }}>
+                    📝 Enviar instrucción (requiere aprobación + credencial de control) — usa el Panel de Instrucciones abajo a la derecha.
+                </p>
+                <p style={{ margin: '3px 0 0 0', fontSize: '9px', color: '#777', fontStyle: 'italic' }}>
+                    El envío real solo ocurre con un adaptador validado; nunca se simula.
+                </p>
+            </div>
+
             {/* Origin + freshness */}
             <p style={{ margin: 0, fontSize: '9px', color: '#666', borderTop: '1px solid #333', paddingTop: 6 }}>
                 Origen: observación read-only de sesiones Cline · actualizado {relTime(agent.updatedAt)}

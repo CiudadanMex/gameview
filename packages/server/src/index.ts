@@ -6,6 +6,11 @@ import { OfficeRoom } from './rooms/OfficeRoom';
 import { loadDotEnv, loadConfig, describeConfig } from './config';
 import { registerExternalRoutes } from './external/routes';
 import { createRealAgentsOrchestrator } from './integrations';
+import { createControlRuntime } from './integrations/control';
+import { registerControlRoutes } from './control/routes';
+import { LocalTaskStore } from './integrations/tasks/TaskStore';
+import { UnavailableDshTaskProvider } from './integrations/dsh/DshTaskProvider';
+import { ClineTeamsObserver } from './integrations/dsh/ClineTeamsObserver';
 
 // Load optional .env files (never overrides variables already set in
 // the shell): first the repo root, then the current working directory.
@@ -54,6 +59,19 @@ app.get('/api/episode-recap', (req, res) => {
 // External orchestration interface (Ciudadan AgentOffice).
 // Served only on the same local server; requires external mode for writes.
 registerExternalRoutes(app, config);
+
+// ─── Block 4: interactive control center ───
+// Task proposals live in their OWN store (swappable by a real DSH
+// provider later); observed Cline Teams tasks are read-only.
+const controlRuntime = createControlRuntime(config);
+registerControlRoutes(app, config, {
+    adapter: controlRuntime.adapter,
+    instructions: controlRuntime.instructions,
+    audit: controlRuntime.audit,
+    tasks: new LocalTaskStore('./data/office-tasks.db'),
+    dsh: new UnavailableDshTaskProvider(),
+    clineTeams: new ClineTeamsObserver(config.clineDataDir)
+});
 
 // Create HTTP and Colyseus server
 const httpServer = createServer(app);

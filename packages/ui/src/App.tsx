@@ -9,6 +9,7 @@ import { HighlightsFeed } from './components/HighlightsFeed';
 import { AgentPulseBoard } from './components/AgentPulseBoard';
 import { RelationshipGraph } from './components/RelationshipGraph';
 import { EpisodeRecapPanel } from './components/EpisodeRecapPanel';
+import { InstructionPanel } from './components/InstructionPanel';
 
 export function App() {
     return (
@@ -27,6 +28,7 @@ export function App() {
             <HighlightsFeed />
             <AgentPulseBoard />
             <EpisodeRecapPanel />
+            <InstructionPanel />
         </>
     );
 }

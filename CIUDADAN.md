@@ -95,6 +95,26 @@ Instalación reproducible (máquinas Oracle): [`docs/ciudadan/INSTALL.md`](./doc
   (`VITE_WS_URL`/`VITE_WS_PORT`), `Phaser.Scale.RESIZE` existente,
   renderizado separado de datos — listo para `/esfericulos` (sin integrar).
 
+## Bloque 4 — Centro de control interactivo
+
+- **Investigación SDK/hub Cline** (`docs/ciudadan/CONTROL_CENTER.md`):
+  `@cline/core` conecta al hub y sus funciones (`list/get/readMessages/
+  subscribe/start/send`) funcionan a nivel transporte; **las sesiones TUI
+  existentes no están registradas en el hub** → el envío real queda
+  deshabilitado por config con causa documentada (sin métodos invasivos).
+- **Panel de Instrucciones** con máquina de estados completa
+  (`draft→pending_approval→approved→dispatched→acknowledged|rejected|failed`),
+  idempotencia por requestId, rate-limit y auditoría JSONL; aprobación
+  honesta (nunca simula envíos).
+- **Centro de Trabajo**: propuestas (nunca "asignadas" sin confirmación
+  externa), sprints, dependencias, tareas observadas de Cline (solo
+  lectura) y estado DSH explícito.
+- **Seguridad**: credencial de control obligatoria server-side
+  (`AGENTOFFICE_CONTROL_TOKEN`), lecturas/escrituras separadas,
+  validación de sesión destino, sin comandos shell arbitrarios.
+- **DSH**: contrato de proveedor tipado (`DshTaskProvider`) con todo
+  marcado no disponible — sin endpoints inventados.
+
 ## Puertos y variables
 
 | Variable | Defecto | Descripción |
