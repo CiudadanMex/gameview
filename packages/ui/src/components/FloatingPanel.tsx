@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { usePanelEmbedded } from '../shell/PanelEmbed';
 
 type Position = { x: number; y: number };
 
@@ -35,6 +36,7 @@ export function FloatingPanel({
     subtitle,
     children
 }: FloatingPanelProps) {
+    const embedded = usePanelEmbedded();
     const storageKey = useMemo(() => `panel:${id}:state`, [id]);
 
     const [position, setPosition] = useState<Position>(() => {
@@ -97,6 +99,51 @@ export function FloatingPanel({
         };
     }, [dragOffset, width]);
 
+    // ── Embedded mode (Extras drawer host): static section, no drag. ──
+    if (embedded) {
+        return (
+            <div style={{
+                width: '100%',
+                borderRadius: 10,
+                overflow: 'hidden',
+                border: '1px solid rgba(139,92,246,0.22)',
+                backgroundColor: 'rgba(24,18,46,0.66)',
+                marginBottom: 10
+            }}>
+                <div style={{
+                    padding: '8px 10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    borderBottom: minimized ? 'none' : '1px solid rgba(139,92,246,0.16)',
+                    background: 'rgba(139,92,246,0.10)'
+                }}>
+                    <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#e9e4ff' }}>{title}</div>
+                        {subtitle && <div style={{ fontSize: 10, opacity: 0.65 }}>{subtitle}</div>}
+                    </div>
+                    <button
+                        onClick={() => setMinimized((value) => !value)}
+                        style={{
+                            border: '1px solid rgba(139,92,246,0.3)',
+                            borderRadius: 6,
+                            width: 24,
+                            height: 22,
+                            cursor: 'pointer',
+                            color: '#e9e4ff',
+                            background: 'rgba(139,92,246,0.12)'
+                        }}
+                        title={minimized ? 'Expandir' : 'Minimizar'}
+                    >
+                        {minimized ? '+' : '−'}
+                    </button>
+                </div>
+                {!minimized && <div style={{ padding: 10 }}>{children}</div>}
+            </div>
+        );
+    }
+
+    // ── Legacy floating mode (only used outside the new shell hosts). ──
     return (
         <div style={{
             position: 'absolute',

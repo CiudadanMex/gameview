@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { eventBus } from '../events';
+import { usePanelEmbedded } from '../shell/PanelEmbed';
 
 interface LogEntry {
     id: number;
@@ -17,6 +18,7 @@ const actionIcons: Record<string, string> = {
 export function SystemLog() {
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [isOpen, setIsOpen] = useState(true);
+    const embedded = usePanelEmbedded();
     const scrollRef = useRef<HTMLDivElement>(null);
     const idRef = useRef(0);
 
@@ -47,7 +49,7 @@ export function SystemLog() {
         }
     }, [logs]);
 
-    if (!isOpen) {
+    if (!isOpen && !embedded) {
         return (
             <button
                 onClick={() => setIsOpen(true)}
@@ -64,7 +66,11 @@ export function SystemLog() {
     }
 
     return (
-        <div style={{
+        <div style={embedded ? {
+            width: '100%', backgroundColor: 'rgba(24,18,46,0.66)', color: 'white',
+            padding: 12, borderRadius: 10, border: '1px solid rgba(139,92,246,0.22)',
+            maxHeight: '38vh', display: 'flex', flexDirection: 'column', marginBottom: 10
+        } : {
             position: 'absolute', right: 20, top: 20, width: 260,
             backgroundColor: 'rgba(10,10,30,0.92)', color: 'white',
             padding: 12, borderRadius: 12,

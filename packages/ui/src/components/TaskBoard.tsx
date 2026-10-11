@@ -35,7 +35,22 @@ const STATUS_META: Record<string, { label: string; color: string; icon: string }
 };
 const EDITABLE = ['proposed', 'pending', 'in_review', 'blocked'];
 
-export function TaskBoard() {
+/**
+ * Block 4 (FASE C) — real-work TaskBoard.
+ *
+ * UI/UX Bloque 1: now an embedded view inside the Work Center
+ * sidebar (`view="tasks"` or `view="sprints"`), no floating window.
+ *
+ * Sources are clearly separated (never mixed up):
+ *  - 🏗 Propuestas locales (origin 'agentoffice'): created here, always
+ *    labeled as proposals; only ORGANIZATIONAL statuses are editable.
+ *    They can never appear as assigned/executed without confirmation
+ *    from DSH or a validated dispatch (the server enforces it).
+ *  - 🔎 Tareas observadas de Cline (read-only, from Cline Teams).
+ *  - 🧠 Tareas DSH: shown only when a real DSH provider is connected
+ *    (today: explicitly reported as not installed).
+ */
+export function TaskBoard({ view = 'tasks' }: { view?: 'tasks' | 'sprints' | 'full' }) {
     const [tasks, setTasks] = useState<OfficeTask[]>([]);
     const [observed, setObserved] = useState<ObservedTask[]>([]);
     const [sprints, setSprints] = useState<Sprint[]>([]);
@@ -124,79 +139,96 @@ export function TaskBoard() {
     };
 
     return (
-        <div style={{
-            position: 'absolute', left: 20, top: 20, width: 300,
-            backgroundColor: 'rgba(10,10,30,0.92)', color: 'white',
-            padding: 16, borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-            backdropFilter: 'blur(8px)', border: '1px solid rgba(108,92,231,0.3)',
-            maxHeight: '70vh', display: 'flex', flexDirection: 'column', zIndex: 10
-        }}>
-            <h3 style={{ margin: '0 0 8px 0', fontSize: '14px' }}>📋 Centro de Trabajo</h3>
-
+        <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1, width: '100%' }}>
             {!hasToken ? (
                 <form onSubmit={(e) => { e.preventDefault(); if (tokenInput.trim()) { setControlToken(tokenInput.trim()); setHasToken(true); void refresh(); } }}
-                    style={{ marginBottom: 8, padding: '6px 8px', background: 'rgba(253,203,110,0.08)', borderRadius: 6 }}>
-                    <p style={{ margin: '0 0 4px 0', fontSize: '10px', color: '#fdcb6e' }}>
-                        🔑 Credencial de control (AGENTOFFICE_CONTROL_TOKEN del servidor) para acciones de escritura:
+                    className="gv-card" style={{ padding: '8px 10px', marginBottom: 8, background: 'rgba(251,191,36,0.06)', borderColor: 'rgba(251,191,36,0.3)' }}>
+                    <p style={{ margin: '0 0 5px 0', fontSize: '10px', color: 'var(--gv-warn)' }}>
+                        🔑 Credencial de control — solo para acciones de escritura (se guarda en esta
+                        pestaña, nunca en disco):
                     </p>
                     <div style={{ display: 'flex', gap: 4 }}>
                         <input type="password" value={tokenInput} onChange={(e) => setTokenInput(e.target.value)}
-                            placeholder="token…" style={{ flex: 1, fontSize: '10px', padding: '4px 6px', borderRadius: 4, border: '1px solid #444', background: '#1a1a3e', color: 'white' }} />
-                        <button type="submit" style={{ fontSize: '10px', padding: '4px 8px', borderRadius: 4, border: 'none', background: '#6c5ce7', color: 'white', cursor: 'pointer' }}>OK</button>
+                            placeholder="AGENTOFFICE_CONTROL_TOKEN…"
+                            className="gv-input" style={{ flex: 1 }} />
+                        <button type="submit" className="gv-btn gv-btn-primary">OK</button>
                     </div>
                 </form>
             ) : null}
 
-            {message && <p style={{ margin: '0 0 6px 0', fontSize: '10px', color: '#ff7675' }}>{message}</p>}
+            {message && <p style={{ margin: '0 0 6px 0', fontSize: '10px', color: 'var(--gv-err)' }}>{message}</p>}
 
-            <form onSubmit={createProposal} style={{ marginBottom: 8 }}>
-                <input value={newTask} onChange={(e) => setNewTask(e.target.value)}
-                    placeholder="Nueva propuesta de tarea…"
-                    style={{ width: '100%', padding: '7px 9px', borderRadius: 6, border: '1px solid #444', backgroundColor: '#1a1a3e', color: 'white', fontSize: '11px', outline: 'none', boxSizing: 'border-box' }} />
-                <button type="submit" style={{ marginTop: 4, width: '100%', padding: '5px', borderRadius: 6, border: 'none', backgroundColor: '#6c5ce7', color: 'white', fontSize: '11px', cursor: 'pointer' }}>
-                    🏗 Crear propuesta (requiere confirmación externa)
-                </button>
-            </form>
+            {(view === 'tasks' || view === 'full') && (
+                <>
+                    <form onSubmit={createProposal} style={{ marginBottom: 8 }}>
+                        <input value={newTask} onChange={(e) => setNewTask(e.target.value)}
+                            placeholder="Nueva propuesta de tarea…"
+                            className="gv-input" />
+                        <button type="submit" className="gv-btn" style={{ marginTop: 4, width: '100%' }}>
+                            🏗 Crear propuesta (requiere confirmación externa)
+                        </button>
+                    </form>
 
-            <div style={{ flex: 1, overflowY: 'auto', fontSize: '12px' }}>
-                {sprints.map(sprint => (
-                    <div key={sprint.id} style={{ marginBottom: 8 }}>
-                        <p style={{ margin: '0 0 4px 0', fontSize: '11px', color: '#a29bfe', fontWeight: 'bold' }}>🏃 {sprint.name}</p>
-                        {tasks.filter(t => t.sprintId === sprint.id).map(renderTask)}
-                        {tasks.filter(t => t.sprintId === sprint.id).length === 0 && (
-                            <p style={{ color: '#555', fontSize: '10px', fontStyle: 'italic', margin: '0 0 0 8px' }}>sin tareas</p>
+                    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', fontSize: '12px' }}>
+                        {(['proposed', 'in_progress', 'blocked', 'in_review', 'completed'] as const)
+                            .filter(st => tasks.some(t => !t.sprintId && t.status === st))
+                            .map(st => (
+                                <div key={st}>
+                                    <p style={{ margin: '8px 0 4px 0', fontSize: '10px', fontWeight: 700, color: STATUS_META[st].color }}>
+                                        {STATUS_META[st].icon} {STATUS_META[st].label}s · backlog
+                                    </p>
+                                    {tasks.filter(t => !t.sprintId && t.status === st).map(renderTask)}
+                                </div>
+                            ))}
+                        {tasks.filter(t => !t.sprintId).length === 0 && (
+                            <p className="gv-hint">Sin propuestas aún. Las propuestas son organizativas: nunca se
+                                muestran como ejecutadas sin confirmación del proveedor correspondiente (DSH o envío validado).</p>
                         )}
+
+                        {observed.length > 0 && (
+                            <>
+                                <p style={{ margin: '12px 0 4px 0', fontSize: '10px', fontWeight: 700, color: '#7fcdaa' }}>🔎 Observadas de Cline (solo lectura)</p>
+                                {observed.map(t => (
+                                    <div key={t.id} style={{ padding: '4px 8px', marginBottom: 3, borderRadius: 6, background: 'rgba(0,184,148,0.06)', fontSize: '11px' }}>
+                                        {t.title} <span style={{ color: 'var(--gv-muted)', fontSize: '10px' }}>· {t.status}</span>
+                                    </div>
+                                ))}
+                            </>
+                        )}
+
+                        <p style={{ margin: '10px 0 0 0', fontSize: '9px', color: 'var(--gv-faint)', borderTop: '1px solid var(--gv-border)', paddingTop: 6 }}>
+                            🧠 DSH: {dsh.available ? 'conectado' : 'no instalado'} — {dsh.available ? 'fuente de verdad de sus tareas' : 'las tareas DSH aparecerán cuando se despliegue'}
+                        </p>
                     </div>
-                ))}
+                </>
+            )}
 
-                <p style={{ margin: '8px 0 4px 0', fontSize: '11px', color: '#74b9ff', fontWeight: 'bold' }}>📦 Backlog (sin sprint)</p>
-                {tasks.filter(t => !t.sprintId).map(renderTask)}
-                {tasks.filter(t => !t.sprintId).length === 0 && (
-                    <p style={{ color: '#555', fontSize: '10px', fontStyle: 'italic', margin: '0 0 0 8px' }}>sin propuestas</p>
-                )}
-
-                {observed.length > 0 && (
-                    <>
-                        <p style={{ margin: '10px 0 4px 0', fontSize: '11px', color: '#7fcdaa', fontWeight: 'bold' }}>🔎 Observadas de Cline (solo lectura)</p>
-                        {observed.map(t => (
-                            <div key={t.id} style={{ padding: '4px 8px', marginBottom: 3, borderRadius: 6, background: 'rgba(0,184,148,0.06)', fontSize: '11px' }}>
-                                {t.title} <span style={{ color: '#888', fontSize: '10px' }}>· {t.status}</span>
+            {(view === 'sprints' || view === 'full') && (
+                <>
+                    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', fontSize: '12px' }}>
+                        {sprints.length === 0 && (
+                            <p className="gv-hint">Sin sprints. Crea uno para agrupar propuestas (por ejemplo
+                                «Sprint 1 — MVP web»); las dependencias de cada tarea se muestran junto a ella.</p>
+                        )}
+                        {sprints.map(sprint => (
+                            <div key={sprint.id} style={{ marginBottom: 10 }}>
+                                <p style={{ margin: '0 0 4px 0', fontSize: '11px', color: 'var(--gv-lilac)', fontWeight: 'bold' }}>🏃 {sprint.name}</p>
+                                {tasks.filter(t => t.sprintId === sprint.id).map(renderTask)}
+                                {tasks.filter(t => t.sprintId === sprint.id).length === 0 && (
+                                    <p style={{ color: 'var(--gv-faint)', fontSize: '10px', fontStyle: 'italic', margin: '0 0 0 8px' }}>sin tareas</p>
+                                )}
                             </div>
                         ))}
-                    </>
-                )}
+                    </div>
 
-                <p style={{ margin: '10px 0 0 0', fontSize: '9px', color: '#666', borderTop: '1px solid #333', paddingTop: 6 }}>
-                    🧠 DSH: {dsh.available ? 'conectado' : 'no instalado'} — {dsh.available ? 'fuente de verdad de sus tareas' : 'las tareas DSH aparecerán cuando se despliegue'}
-                </p>
-            </div>
-
-            <form onSubmit={createSprint} style={{ marginTop: 8, display: 'flex', gap: 4 }}>
-                <input value={newSprint} onChange={(e) => setNewSprint(e.target.value)}
-                    placeholder="Nuevo sprint…"
-                    style={{ flex: 1, padding: '6px 8px', borderRadius: 6, border: '1px solid #444', backgroundColor: '#1a1a3e', color: 'white', fontSize: '11px' }} />
-                <button type="submit" style={{ padding: '6px 10px', borderRadius: 6, border: 'none', backgroundColor: '#2d3436', color: '#ccc', fontSize: '11px', cursor: 'pointer' }}>+</button>
-            </form>
+                    <form onSubmit={createSprint} style={{ marginTop: 8, display: 'flex', gap: 4 }}>
+                        <input value={newSprint} onChange={(e) => setNewSprint(e.target.value)}
+                            placeholder="Nuevo sprint…"
+                            className="gv-input" style={{ flex: 1 }} />
+                        <button type="submit" className="gv-btn">+</button>
+                    </form>
+                </>
+            )}
         </div>
     );
 }

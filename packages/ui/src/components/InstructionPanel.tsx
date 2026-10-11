@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { controlJson } from '../controlApi';
+import { controlJson, getControlToken, setControlToken } from '../controlApi';
+import { eventBus } from '../events';
 
 /**
  * Block 4 (FASE E) — Instruction panel.
@@ -54,19 +55,33 @@ const KIND_LABELS: Record<string, string> = {
     disconnected: '💤 Desconectada'
 };
 
-export function InstructionPanel() {
+export function InstructionPanel({ embedded = false }: { embedded?: boolean }) {
     const [caps, setCaps] = useState<Capabilities | null>(null);
     const [instructions, setInstructions] = useState<Instruction[]>([]);
     const [selected, setSelected] = useState<string>('');
     const [prompt, setPrompt] = useState('');
     const [confirming, setConfirming] = useState<Instruction | null>(null);
     const [message, setMessage] = useState<string | null>(null);
+    const [tokenInput, setTokenInput] = useState('');
+    const [hasToken, setHasToken] = useState(false);
+
+    // UI/UX Bloque 1 (FASE 4): "Instrucciones para este agente" from the
+    // contextual inspector preselects the session here.
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const detail = (e as CustomEvent).detail as { id: string } | null;
+            if (detail?.id) setSelected(detail.id);
+        };
+        eventBus.addEventListener('instruction-panel:select-agent', handler as EventListener);
+        return () => eventBus.removeEventListener('instruction-panel:select-agent', handler as EventListener);
+    }, []);
 
     const refresh = useCallback(async () => {
         const capData = await controlJson<Capabilities>('/capabilities');
         if (capData.ok) setCaps(capData as Capabilities);
         const insData = await controlJson<{ instructions: Instruction[] }>('/instructions');
         if (insData.ok) setInstructions(insData.instructions || []);
+        setHasToken(Boolean(getControlToken()));
     }, []);
 
     useEffect(() => { void refresh(); const t = setInterval(refresh, 5000); return () => clearInterval(t); }, [refresh]);
@@ -96,13 +111,33 @@ export function InstructionPanel() {
     const canCreateDraft = Boolean(selected) && Boolean(prompt.trim()) && Boolean(agent?.controllable);
 
     return (
-        <div style={{
+        <div style={embedded ? {
+            width: '100%', minHeight: 0, flex: 1,
+            display: 'flex', flexDirection: 'column',
+            color: 'var(--gv-text)'
+        } : {
             position: 'absolute', right: 20, bottom: 20, width: 330,
             backgroundColor: 'rgba(10,10,30,0.92)', color: 'white',
             padding: 14, borderRadius: 12, border: '1px solid rgba(108,92,231,0.3)',
             maxHeight: '55vh', overflowY: 'auto', zIndex: 10
         }}>
             <h3 style={{ margin: '0 0 8px 0', fontSize: '13px' }}>🎯 Panel de Instrucciones</h3>
+
+            {!hasToken ? (
+                <form onSubmit={(e) => { e.preventDefault(); if (tokenInput.trim()) { setControlToken(tokenInput.trim()); setHasToken(true); void refresh(); } }}
+                    className="gv-card" style={{ marginBottom: 8, background: 'rgba(251,191,36,0.06)', borderColor: 'rgba(251,191,36,0.3)' }}>
+                    <p style={{ margin: '0 0 5px 0', fontSize: '10px', color: 'var(--gv-warn)' }}>
+                        🔑 Credencial de control — requerida para crear/aprobar instrucciones
+                        (queda solo en esta pestaña):
+                    </p>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                        <input type="password" value={tokenInput} onChange={(e) => setTokenInput(e.target.value)}
+                            placeholder="AGENTOFFICE_CONTROL_TOKEN…"
+                            className="gv-input" style={{ flex: 1 }} />
+                        <button type="submit" className="gv-btn gv-btn-primary">OK</button>
+                    </div>
+                </form>
+            ) : null}
 
             {/* Dispatch availability — honest, server-reported */}
             <p style={{

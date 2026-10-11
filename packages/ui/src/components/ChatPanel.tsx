@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { eventBus } from '../events';
 import { getColyseusRoom } from '../game/Game';
+import { usePanelEmbedded } from '../shell/PanelEmbed';
 
 export function ChatPanel() {
     const [messages, setMessages] = useState<{ sender: string, text: string }[]>([
@@ -32,8 +33,12 @@ export function ChatPanel() {
         }
     };
 
+    const embedded = usePanelEmbedded();
+
     return (
-        <div style={{ position: 'absolute', right: 20, bottom: 20, width: 300, height: 400, backgroundColor: 'rgba(0,0,0,0.8)', color: 'white', padding: 16, borderRadius: 8, display: 'flex', flexDirection: 'column' }}>
+        <div style={embedded ? {
+            width: '100%', height: 340, backgroundColor: 'rgba(24,18,46,0.66)', color: 'white', padding: 12, borderRadius: 10, border: '1px solid rgba(139,92,246,0.22)', display: 'flex', flexDirection: 'column', marginBottom: 10
+        } : { position: 'absolute', right: 20, bottom: 20, width: 300, height: 400, backgroundColor: 'rgba(0,0,0,0.8)', color: 'white', padding: 16, borderRadius: 8, display: 'flex', flexDirection: 'column' }}>
             <h3 style={{ margin: '0 0 10px 0' }}>Office Chat</h3>
             <div style={{ flex: 1, overflowY: 'auto', fontSize: '14px', marginBottom: 10, paddingRight: 4 }}>
                 {messages.map((m, i) => (

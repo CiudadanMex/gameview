@@ -2,6 +2,10 @@ import Phaser from 'phaser';
 import * as Colyseus from 'colyseus.js';
 import { OfficeState, AgentState } from './schema';
 import { eventBus } from '../events';
+import {
+    resolveWsEndpoint, readWsQueryOverride,
+    WS_OVERRIDE_STORAGE_KEY, WS_OVERRIDE_LEGACY_KEY
+} from '../wsEndpoint';
 
 let activeRoom: Colyseus.Room<OfficeState> | undefined;
 
@@ -14,35 +18,45 @@ export function getColyseusRoom() {
 declare const __AGENT_OFFICE_WS_URL__: string;
 declare const __AGENT_OFFICE_WS_PORT__: string;
 
-function resolveWsEndpoint(): string {
-    if (typeof window !== 'undefined') {
-        const queryWs = new URLSearchParams(window.location.search).get('ws');
-        if (queryWs && queryWs.trim()) {
-            window.localStorage.setItem('agent-office:ws-url', queryWs.trim());
-            return queryWs.trim();
+/**
+ * UI/UX Bloque 1 (FASE 10): resolves the Colyseus endpoint.
+ * The pure logic lives in wsEndpoint.ts (unit tested). Here we only
+ * wire the browser inputs: the ?ws= override (sessionStorage, never
+ * localStorage — stale URLs must not stick) and the page location.
+ * https pages connect to their own origin via wss WITHOUT an explicit
+ * port (Cloudflare Tunnel/Access terminate WSS on 443) — this fixes
+ * "Colyseus Sync: Failed (wss://gameview.ciudadan.org:3000)".
+ */
+function resolveWsEndpointFromBrowser(): string {
+    let savedOverride: string | null = null;
+    try {
+        // Remove the legacy localStorage override from previous builds.
+        window.localStorage.removeItem(WS_OVERRIDE_LEGACY_KEY);
+        savedOverride = window.sessionStorage.getItem(WS_OVERRIDE_STORAGE_KEY);
+    } catch { /* storage unavailable — continue without override */ }
+    const queryOverride = readWsQueryOverride(window.location.search);
+    const override = queryOverride || savedOverride;
+    if (queryOverride) {
+        try { window.sessionStorage.setItem(WS_OVERRIDE_STORAGE_KEY, queryOverride); } catch { /* ignore */ }
+    }
+    return resolveWsEndpoint({
+        queryOverride: override,
+        savedOverride: null,
+        buildUrl: typeof __AGENT_OFFICE_WS_URL__ !== 'undefined' ? __AGENT_OFFICE_WS_URL__ : '',
+        buildPort: typeof __AGENT_OFFICE_WS_PORT__ !== 'undefined' ? __AGENT_OFFICE_WS_PORT__ : '',
+        location: {
+            protocol: window.location.protocol,
+            hostname: window.location.hostname,
+            port: window.location.port
         }
-        const savedWs = window.localStorage.getItem('agent-office:ws-url');
-        if (savedWs && savedWs.trim()) return savedWs.trim();
-    }
-    // Deployment-provided endpoint (Discord Activity, embeds) wins over
-    // the location-derived default — never a hardcoded localhost.
-    const configured = typeof __AGENT_OFFICE_WS_URL__ !== 'undefined'
-        ? String(__AGENT_OFFICE_WS_URL__ || '').trim()
-        : '';
-    if (configured) return configured;
-    if (typeof window !== 'undefined') {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const port = String(__AGENT_OFFICE_WS_PORT__ || '').trim() || '3000';
-        return `${protocol}//${window.location.hostname}:${port}`;
-    }
-    return 'ws://localhost:3000';
+    });
 }
 
 export class OfficeScene extends Phaser.Scene {
     private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
     private room?: Colyseus.Room;
     private agentSprites: Map<string, Phaser.GameObjects.Container> = new Map();
-    private statusText!: Phaser.GameObjects.Text;
+    private statusText?: Phaser.GameObjects.Text;
     private followTarget: Phaser.GameObjects.Container | null = null;
     /** Id of the agent the inspector panel is currently showing (null = none). */
     private focusAgentId: string | null = null;
@@ -54,6 +68,35 @@ export class OfficeScene extends Phaser.Scene {
     private layoutDragItemId: string | null = null;
     private gridSize = 40 * 16;
     private heldMoveKeys: Set<'left' | 'right' | 'up' | 'down'> = new Set();
+
+    /** Connection status shown in the React header (no in-world text). */
+    private setSyncStatus(state: 'connecting' | 'connected' | 'active' | 'failed', label: string, endpoint = ''): void {
+        eventBus.dispatchEvent(new CustomEvent('sync-status', {
+            detail: { state, label, endpoint }
+        }));
+    }
+
+    /**
+     * UI/UX Bloque 1 (FASE 3): programmatic focus from the Agents list.
+     * Runs the same focus path as a world click (ring, camera follow,
+     * inspector payload) — one source of truth for focusing.
+     */
+    focusAgentById(sessionId: string): boolean {
+        const container = this.agentSprites.get(sessionId);
+        if (!container) return false;
+        const agent = this.room?.state.agents.get(sessionId);
+        // Unfollow previous
+        if (this.followTarget && this.followTarget !== container) {
+            const prevRing = this.followTarget.getAt(0) as Phaser.GameObjects.Graphics;
+            prevRing?.setVisible(false);
+        }
+        const focusRing = container.getAt(0) as Phaser.GameObjects.Graphics;
+        this.followTarget = container;
+        this.focusAgentId = sessionId;
+        focusRing?.setVisible(true);
+        if (agent) this.emitInspectorPayload(agent, sessionId);
+        return true;
+    }
 
     constructor() {
         super('OfficeScene');
@@ -73,9 +116,26 @@ export class OfficeScene extends Phaser.Scene {
     create() {
         try {
             console.log("Phaser create() started");
-            this.statusText = this.add.text(10, 10, 'Colyseus Sync: Connecting...', { color: '#ffffaa', fontSize: '14px' });
-            this.statusText.setScrollFactor(0);
-            this.statusText.setDepth(100);
+            // UI/UX Bloque 1: sync status lives in the React header now
+            // (sync-status events) — the world stays free of UI chrome.
+            this.setSyncStatus('connecting', 'Conectando…');
+
+            // UI/UX Bloque 1 (FASE 3): focus requests from the Agents list.
+            eventBus.addEventListener('agent-focus-request', ((e: Event) => {
+                const detail = (e as CustomEvent).detail as { id: string } | null;
+                if (detail?.id) this.focusAgentById(detail.id);
+            }) as EventListener);
+            // UI/UX Bloque 1 (FASE 4): closing the contextual panel must
+            // ALSO unfocus the world character — otherwise the inspector
+            // payload keeps flowing and the panel would re-open itself.
+            eventBus.addEventListener('agent-unfocus-request', (() => {
+                if (this.followTarget) {
+                    const ring = this.followTarget.getAt(0) as Phaser.GameObjects.Graphics;
+                    ring?.setVisible(false);
+                }
+                this.followTarget = null;
+                this.focusAgentId = null;
+            }) as EventListener);
 
             let hasAnims = false;
 
@@ -544,8 +604,8 @@ export class OfficeScene extends Phaser.Scene {
     async connectToServer() {
         try {
             console.log("Connecting to Colyseus...");
-            const wsEndpoint = resolveWsEndpoint();
-            this.statusText.setText(`Colyseus Sync: Connecting to ${wsEndpoint}...`).setColor('#ffffaa');
+            const wsEndpoint = resolveWsEndpointFromBrowser();
+            this.setSyncStatus('connecting', `Conectando (${wsEndpoint})…`, wsEndpoint);
             const client = new Colyseus.Client(wsEndpoint);
             // Block 5 (FASE E): optional WS token for remote deployments
             // (query param ?wstoken= — kept in sessionStorage).
@@ -559,14 +619,14 @@ export class OfficeScene extends Phaser.Scene {
             this.room = await client.joinOrCreate('office', joinOptions);
 
             console.log("Room joined successfully!", this.room.sessionId);
-            this.statusText.setText('Colyseus Sync: Connected (Waiting for state...)').setColor('#aaffaa');
+            this.setSyncStatus('connected', 'Sala conectada — sincronizando…', wsEndpoint);
 
             // Wait for the first actual state payload from the server before reading
             this.room.onStateChange.once((state: any) => {
                 activeRoom = this.room as Colyseus.Room<OfficeState>;
                 console.log("First state payload arrived!", state.toJSON());
                 console.log("Agents map size:", state.agents?.size);
-                this.statusText.setText('Colyseus Sync: Active!').setColor('#00ff00');
+                this.setSyncStatus('active', 'Sincronizado', wsEndpoint);
 
                 // Bind chat bus
                 this.room!.onMessage('chat', (message: any) => {
@@ -781,8 +841,8 @@ export class OfficeScene extends Phaser.Scene {
 
         } catch (e) {
             console.error(e);
-            const wsEndpoint = resolveWsEndpoint();
-            this.statusText.setText(`Colyseus Sync: Failed (${wsEndpoint})`).setColor('#ffaaaa');
+            const wsEndpoint = resolveWsEndpointFromBrowser();
+            this.setSyncStatus('failed', 'Fallo de conexión', wsEndpoint);
         }
     }
 
@@ -908,7 +968,18 @@ export class OfficeScene extends Phaser.Scene {
     }
 }
 
+let phaserGame: Phaser.Game | null = null;
+
+/** Access to the live Phaser game (for container-driven resizes). */
+export function getPhaserGame(): Phaser.Game | null {
+    return phaserGame;
+}
+
 export function setupPhaser(parentId: string) {
+    // UI/UX Bloque 1: idempotent boot — the shell may call this once
+    // when its world area mounts; never start a second game instance.
+    if (phaserGame) return phaserGame;
+
     const config: Phaser.Types.Core.GameConfig = {
         type: Phaser.AUTO,
         parent: parentId,
@@ -927,6 +998,7 @@ export function setupPhaser(parentId: string) {
     };
 
     const game = new Phaser.Game(config);
+    phaserGame = game;
 
     // When ANY input/textarea/select is focused, fully disable Phaser keyboard
     // When they blur, re-enable it

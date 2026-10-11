@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { getColyseusRoom } from '../game/Game';
 import { eventBus } from '../events';
+import { usePanelEmbedded } from '../shell/PanelEmbed';
 
 interface FurnitureItem {
     id: string;
@@ -22,6 +23,7 @@ const FURNITURE_PALETTE: { type: FurnitureItem['type']; emoji: string; label: st
 
 export function LayoutEditor() {
     const [isOpen, setIsOpen] = useState(false);
+    const embedded = usePanelEmbedded();
     const [items, setItems] = useState<FurnitureItem[]>([]);
     const [selected, setSelected] = useState<FurnitureItem['type']>('desk');
     const [moveMode, setMoveMode] = useState(true);
@@ -54,8 +56,13 @@ export function LayoutEditor() {
     }, [items]);
 
     useEffect(() => {
-        eventBus.dispatchEvent(new CustomEvent('layout-edit-mode', { detail: { enabled: isOpen && moveMode } }));
-    }, [isOpen, moveMode]);
+        eventBus.dispatchEvent(new CustomEvent('layout-edit-mode', { detail: { enabled: (isOpen || embedded) && moveMode } }));
+        // On unmount (e.g. Extras drawer closed) ALWAYS leave world
+        // edit mode off — furniture must never move unintentionally.
+        return () => {
+            eventBus.dispatchEvent(new CustomEvent('layout-edit-mode', { detail: { enabled: false } }));
+        };
+    }, [isOpen, moveMode, embedded]);
 
     const addItem = () => {
         const newItem: FurnitureItem = {
@@ -90,7 +97,7 @@ export function LayoutEditor() {
         }
     };
 
-    if (!isOpen) {
+    if (!isOpen && !embedded) {
         return (
             <button
                 onClick={() => setIsOpen(true)}
@@ -109,7 +116,11 @@ export function LayoutEditor() {
     }
 
     return (
-        <div style={{
+        <div style={embedded ? {
+            width: '100%', backgroundColor: 'rgba(24,18,46,0.66)', color: 'white',
+            padding: 12, borderRadius: 10, border: '1px solid rgba(139,92,246,0.22)',
+            maxHeight: '40vh', display: 'flex', flexDirection: 'column', marginBottom: 10
+        } : {
             position: 'absolute', left: 20, bottom: 20, width: 280,
             backgroundColor: 'rgba(10,10,30,0.95)', color: 'white',
             padding: 16, borderRadius: 12,
