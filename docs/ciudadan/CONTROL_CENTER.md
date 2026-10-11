@@ -118,3 +118,53 @@ iframe y con la futura Activity `/esfericulos`. La autenticación de
 Ciudadan podrá inyectarse como capa delante del REST sin tocar el motor
 visual ni el TaskBoard.
 
+## 8. Bloque 5 — Sesiones gestionadas por hub (E2E VERIFICADO)
+
+### Semántica del hub de Cline (v3.0.70) — verificada empíricamente
+
+| Tipo de sesión | ¿Persiste entre turnos? | ¿Acepta send() repetido? |
+|---|---|---|
+| TUI existente (`cline -i`) | sí (terminal propio) | **no** — no está registrada en el hub |
+| SDK `start({interactive: false})` | **no** — muere tras su primer turno (`ended`, "session not found") | no |
+| SDK `start({interactive: true})` | **sí** — vive indefinidamente, `completed` = "turno terminado, esperando instrucción" | **sí** |
+
+- La oficina lanza sesiones **interactivas** (única forma de múltiples instrucciones).
+- El estado hub `completed` en una sesión interactiva viva se traduce a
+  `idle` en la oficina (no terminal); solo las sesiones detenidas por la
+  oficina son terminales (`completed` → gracia → puesto liberado).
+- `core.stop()` no borra los registros de la lista del hub (inertes,
+  limpiables con `cline doctor`); la oficina las olvida por sí misma.
+
+### Prueba end-to-end obligatoria — RESULTADO: ✅ COMPLETA (2026-10-11)
+
+1. ✅ Sesión desechable creada DESDE el hub vía la oficina (`1791688905603_j5ugk`), `interactive: true`, `enableTools: false`.
+2. ✅ Workspace temporal aislado (`data/hub-workspaces/ws_*`, un directorio por sesión).
+3. ✅ Instrucción inocua por el pipeline autorizado (draft → submit → approve → dispatch con `X-AgentOffice-Control-Token`).
+4. ✅ Respuesta AUTÉNTICA del modelo: **"Azul."** (¿de qué color es el cielo al mediodía?).
+5. ✅ Segunda instrucción a la MISMA sesión — despachada sin error.
+6. ✅ Identidad persistente: misma `sessionId`; segunda respuesta real: **"4"** (2+2).
+7. ✅ Representación en la oficina: personaje `Hub j5ugk` con estados reales observados (`idle` → `working` → `idle`), marcado 🎮 gestionada/controlable.
+8. ✅ Auditoría: `session.launch`, `instruction.dispatch`, `instruction.refresh` con `acknowledged (respuesta real observada)` y `completed (respuesta final observada)`.
+9. ✅ Cierre seguro: `DELETE /api/control/sessions/:id` → parada limpia → personaje terminal → puesto liberado tras gracia.
+
+Proveedor/modelo utilizado (sin secretos): `cline` / `cline-free/mimo-v2.6-flash`
+(tier gratuito configurado por el operador mediante `cline --config ~/.cline auth`).
+NVIDIA `z-ai/glm-5.3` sigue soportado: el operador configura su clave en el
+config del hub y ajusta `HUB_PROVIDER_ID`/`HUB_MODEL_ID`.
+
+### Procedimiento del operador para el proveedor del hub
+
+```bash
+# El hub daemon lee de ~/.cline (HOME de quien lo ejecuta). Si tu shell
+# hereda el config dir del TUI (/workspace/.cline), sé explícito:
+cline --config ~/.cline auth -p nvidia -k nvapi-… -m z-ai/glm-5.3
+# o interactivo (elegir proveedor 'cline' y modelo cline-free/*):
+cline --config ~/.cline auth
+# verificar SIN mostrar claves:
+grep -o '"provider": "[a-z]*"' ~/.cline/data/settings/providers.json
+```
+
+La aplicación NUNCA lee ni copia credenciales de los archivos internos
+de Cline; el hub resuelve el proveedor desde su propia configuración.
+
+

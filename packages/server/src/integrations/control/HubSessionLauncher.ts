@@ -27,6 +27,8 @@ export interface ManagedSessionInfo {
 
 export class HubSessionLauncher {
     private launched = new Map<string, ManagedSessionInfo>();
+    /** Stopped sessions (terminal) — kept for graceful office eviction. */
+    private stopped = new Map<string, ManagedSessionInfo & { stoppedAt: string }>();
 
     constructor(
         private readonly config: ServerConfig,
@@ -39,8 +41,13 @@ export class HubSessionLauncher {
         return [...this.launched.values()];
     }
 
+    /** Sessions stopped by the office (terminal; kept for eviction/history). */
+    listStopped(): Array<ManagedSessionInfo & { stoppedAt: string }> {
+        return [...this.stopped.values()];
+    }
+
     isLaunched(sessionId: string): boolean {
-        return this.launched.has(sessionId);
+        return this.launched.has(sessionId) || this.stopped.has(sessionId);
     }
 
     /**
@@ -71,7 +78,11 @@ export class HubSessionLauncher {
             workspaceDir,
             systemPrompt: 'Eres un agente de Ciudadan AgentOffice gestionado por hub. Sigue las instrucciones del operador con respuestas breves y precisas.',
             prompt: input.prompt,
-            enableTools: this.config.hubSessionTools
+            enableTools: this.config.hubSessionTools,
+            // Interactive sessions persist between turns (E2E-verified);
+            // one-shot sessions die after their first turn and cannot
+            // receive further instructions.
+            interactive: true
         });
 
         if (!result.ok || !result.sessionId) {
@@ -110,7 +121,16 @@ export class HubSessionLauncher {
             result: result.ok ? 'stopped' : 'failed',
             detail: result.error
         });
-        if (result.ok) this.launched.delete(sessionId);
+        if (result.ok) {
+            // Keep a terminal record so the office can evict the
+            // character gracefully (grace window + history) instead of
+            // letting it vanish silently.
+            const info = this.launched.get(sessionId);
+            if (info) {
+                this.stopped.set(sessionId, { ...info, stoppedAt: new Date().toISOString() });
+                this.launched.delete(sessionId);
+            }
+        }
         return result;
     }
 }

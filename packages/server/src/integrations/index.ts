@@ -5,6 +5,7 @@ import { DshAdapter, UnavailableDshAdapter, HttpDshAdapter } from './dsh/DshAdap
 import { RealAgentsOrchestrator } from './RealAgentsOrchestrator';
 import { OfficeRoom } from '../rooms/OfficeRoom';
 import type { ExternalOrchestratorAdapter } from '@agent-office/core';
+import type { ClineSessionSnapshot } from './cline/ClineTypes';
 
 export { ClineSessionSource, ClineTeamsObserver, RealAgentsOrchestrator };
 export type { DshAdapter, DshTask, DshObservation } from './dsh/DshAdapter';
@@ -23,7 +24,10 @@ export function getRealAgentsRuntime(): RealAgentsOrchestrator | null {
  * attaches automatically once the office room is created (and re-attach
  * after a room regeneration).
  */
-export function createRealAgentsOrchestrator(config: ServerConfig): RealAgentsOrchestrator {
+export function createRealAgentsOrchestrator(
+    config: ServerConfig,
+    hubObserver?: { listSnapshots(): Promise<ClineSessionSnapshot[]> }
+): RealAgentsOrchestrator {
     // DSH source selection (Fase C). 'http' is reserved: if someone sets
     // it, fail fast with a clear message instead of pretending.
     let dsh: DshAdapter;
@@ -45,7 +49,7 @@ export function createRealAgentsOrchestrator(config: ServerConfig): RealAgentsOr
         return bridge;
     };
 
-    const orchestrator = new RealAgentsOrchestrator({ config, source, teams, dsh, bridgeResolver });
+    const orchestrator = new RealAgentsOrchestrator({ config, source, teams, dsh, bridgeResolver, hubObserver });
     activeOrchestrator = orchestrator;
     return orchestrator;
 }

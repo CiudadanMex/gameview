@@ -79,8 +79,12 @@ Este entorno contenedorizado NO tiene systemd (PID 1 = sshd). La causa de las se
 **Control real** (sesiones gestionadas por hub — ver README § Conectar Cline):
 
 ```bash
-cline auth -p nvidia -k <TU-CLAVE> -m z-ai/glm-5.3   # procedimiento oficial del operador
-# .env: INSTRUCTION_DISPATCH_ENABLED="true"
+# El hub daemon lee su config de ~/.cline (HOME de quien lo ejecuta).
+# Si tu terminal hereda el config dir del TUI, sé explícito con --config:
+cline --config ~/.cline auth -p nvidia -k <TU-CLAVE> -m z-ai/glm-5.3
+#   (o interactivo: cline --config ~/.cline auth → 'cline' + cline-free/*)
+# .env: INSTRUCTION_DISPATCH_ENABLED="true" y HUB_PROVIDER_ID/HUB_MODEL_ID
+#       = el proveedor/modelo que configuraste en el hub.
 ./scripts/office.sh restart
 ```
 

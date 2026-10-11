@@ -64,6 +64,12 @@ interface OrchestratorDeps {
     dsh: DshAdapter;
     /** Resolves the current ExternalBridge (null while no room exists). */
     bridgeResolver: () => ExternalOrchestratorAdapter | null;
+    /**
+     * Block 5: office-launched HUB sessions (real characters derived
+     * from live hub API evidence). Optional — absent when control is
+     * fully disabled.
+     */
+    hubObserver?: { listSnapshots(): Promise<ClineSessionSnapshot[]> };
     /** Injectable clock for tests. */
     now?: () => number;
 }
@@ -136,7 +142,17 @@ export class RealAgentsOrchestrator {
                 this.announcedDshState = false;
             }
 
-            const sessions = await this.deps.source.listSessions();
+            const tuiSessions = await this.deps.source.listSessions();
+            // Block 5: merge office-launched HUB sessions (real hub API
+            // evidence) with the filesystem-observed TUI sessions. TUI ids
+            // win on collision (they are the authoritative records).
+            const hubSessions = this.deps.hubObserver
+                ? await this.deps.hubObserver.listSnapshots()
+                : [];
+            const sessions = [
+                ...tuiSessions,
+                ...hubSessions.filter(h => !tuiSessions.some(t => t.sessionId === h.sessionId))
+            ];
             if (sessions.length === 0) return;
 
             // ─── Block 3 (FASE D): occupancy policy ───

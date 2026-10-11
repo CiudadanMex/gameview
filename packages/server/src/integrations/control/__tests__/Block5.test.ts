@@ -158,7 +158,10 @@ describe('Block 5 (FASE B): HubSessionLauncher', () => {
         const launched = await launcher.launch({ actor: 'op' });
         const stop = await launcher.stop(launched.session!.sessionId, 'op');
         expect(stop.ok).toBe(true);
-        expect(launcher.isLaunched(launched.session!.sessionId)).toBe(false);
+        // After stop: not ACTIVE anymore, but kept as terminal for the
+        // office's graceful eviction (grace window + history).
+        expect(launcher.listLaunched().some(s => s.sessionId === launched.session!.sessionId)).toBe(false);
+        expect(launcher.listStopped().some(s => s.sessionId === launched.session!.sessionId)).toBe(true);
     });
 
     it('audits launch and stop', async () => {

@@ -3,6 +3,7 @@ import { ClineControlAdapter } from './ClineControlAdapter';
 import { InstructionService } from './InstructionService';
 import { AuditLog } from './AuditLog';
 import { HubSessionLauncher } from './HubSessionLauncher';
+import { HubSessionObserver } from './HubSessionObserver';
 import { OfficeRoom } from '../../rooms/OfficeRoom';
 import * as path from 'path';
 
@@ -15,6 +16,7 @@ export type { ControlCapabilities } from './ControlCapabilities';
 export { BLOCKED_DISPATCH_REASONS } from './ControlCapabilities';
 export { HubSessionLauncher } from './HubSessionLauncher';
 export type { ManagedSessionInfo } from './HubSessionLauncher';
+export { HubSessionObserver } from './HubSessionObserver';
 
 /**
  * Block 4/5 — assembles the control runtime (adapter, instruction
@@ -39,6 +41,7 @@ export function createControlRuntime(config: ServerConfig) {
         }
     });
     const launcher = new HubSessionLauncher(config, adapter, audit);
+    const hubObserver = new HubSessionObserver(launcher, adapter);
 
     // Block 5 (FASE C): lifecycle poller — advances dispatched
     // instructions using REAL hub transcript evidence.
@@ -57,5 +60,5 @@ export function createControlRuntime(config: ServerConfig) {
     }, config.clinePollIntervalMs);
     lifecycleTimer.unref?.();
 
-    return { adapter, audit, instructions, launcher };
+    return { adapter, audit, instructions, launcher, hubObserver };
 }

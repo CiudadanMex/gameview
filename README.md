@@ -18,8 +18,8 @@
 | Historial de sesiones (REST) sin ocupar escritorios | ✅ |
 | TaskBoard real: propuestas, sprints, dependencias, tareas observadas de Cline | ✅ |
 | Panel de instrucciones con máquina de estados y aprobación autorizada | ✅ |
-| Lanzamiento de sesiones Cline **gestionadas por hub** desde la oficina (workspace aislado, permisos restrictivos) | ✅ |
-| Ciclo de instrucciones con evidencia real: enviado → recibido → completado | ✅ (requiere proveedor configurado, ver abajo) |
+| Lanzamiento de sesiones Cline **gestionadas por hub** desde la oficina (workspace aislado, permisos restrictivos) | ✅ verificado en vivo |
+| Ciclo de instrucciones con evidencia real: enviado → recibido → completado | ✅ verificado E2E (respuestas reales del modelo, misma sesión) |
 | Auditoría completa de acciones de control (JSONL rotativo) | ✅ |
 | Producción en un solo proceso (UI compilada + API + WebSocket) | ✅ |
 | Despliegue reproducible: Docker/compose + script supervisor | ✅ |
@@ -55,14 +55,19 @@ Documentación completa: [docs/ciudadan/INSTALL.md](docs/ciudadan/INSTALL.md) ·
 
 **Control** (opcional): las instrucciones solo funcionan con sesiones **gestionadas por hub de Cline** (las TUI existentes no están registradas en el hub y son de solo lectura por seguridad). Pasos del operador:
 
-1. Configura el proveedor del hub con el procedimiento oficial (la app JAMÁS copia claves de los archivos internos de Cline):
+1. Configura el proveedor del hub con el procedimiento oficial (la app JAMÁS copia claves de los archivos internos de Cline). **Ojo**: el hub daemon lee su config de `~/.cline` del usuario que lo ejecuta; si tu terminal hereda el config dir del TUI, sé explícito:
    ```bash
-   cline auth -p nvidia -k <TU-CLAVE> -m z-ai/glm-5.3
+   # verificar qué hay (sin mostrar claves):
+   cat ~/.cline/data/settings/providers.json | grep -o '"provider": "[a-z]*"'
+   # configurar el proveedor que usará el hub:
+   cline --config ~/.cline auth -p nvidia -k <TU-CLAVE> -m z-ai/glm-5.3
+   #   (o el proveedor gratuito integrado, sin claves:)
+   cline --config ~/.cline auth   # y elegir 'cline' + un modelo cline-free/*
    ```
-2. En `.env`: `AGENTOFFICE_CONTROL_TOKEN=$(openssl rand -hex 16)`, `INSTRUCTION_DISPATCH_ENABLED="true"`, `HUB_SESSION_TOOLS="false"`.
+2. En `.env`: `AGENTOFFICE_CONTROL_TOKEN=$(openssl rand -hex 16)`, `INSTRUCTION_DISPATCH_ENABLED="true"`, `HUB_PROVIDER_ID`/`HUB_MODEL_ID` = el proveedor/modelo que configuraste en el hub, `HUB_SESSION_TOOLS="false"`.
 3. Reinicia. Lanza sesiones desde la oficina (`POST /api/control/sessions` con el token) e envíales instrucciones tras aprobación explícita.
 
-Sin la credencial del hub, la oficina funciona completa en modo observación + organización de tareas, y el panel de instrucciones muestra la causa exacta del envío deshabilitado.
+**Verificado end-to-end** (2026-10-11, Cline v3.0.70, proveedor gratuito `cline-free/mimo-v2.6-flash` configurado por el operador): sesión interactiva gestionada por hub lanzada desde la oficina → instrucción inocua despachada por el pipeline autorizado → respuesta real del modelo ("Azul.") → segunda instrucción a la MISMA sesión → respuesta real ("4") → identidad persistente → estados del personaje (idle/working) reflejando la actividad → auditoría completa → cierre seguro. Semántica del hub verificada: las sesiones lanzadas con `interactive: true` **persisten entre turnos**; las one-shot mueren tras su primer turno.
 
 ## 🧠 DSH (DeepSeek Harness)
 

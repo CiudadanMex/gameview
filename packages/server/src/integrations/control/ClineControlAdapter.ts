@@ -193,6 +193,9 @@ export class ClineControlAdapter {
         systemPrompt: string;
         prompt?: string;
         enableTools: boolean;
+        /** E2E-verified: interactive sessions STAY ALIVE between turns
+         *  (one-shot sessions die after their first turn). */
+        interactive: boolean;
     }): Promise<{ ok: boolean; sessionId?: string; error?: string }> {
         const core = await this.connect();
         if (!core) return { ok: false, error: 'hub no conectado' };
@@ -211,7 +214,7 @@ export class ClineControlAdapter {
                     systemPrompt: input.systemPrompt
                 },
                 prompt: input.prompt,
-                interactive: false
+                interactive: input.interactive
             });
             const sessionId = String(result?.sessionId || '');
             if (!sessionId) return { ok: false, error: 'el hub no devolvió sessionId' };

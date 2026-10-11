@@ -126,6 +126,18 @@ Instalación reproducible (máquinas Oracle): [`docs/ciudadan/INSTALL.md`](./doc
 - **Ciclo completo de instrucciones con evidencia real**: enviado → recibido
   (acknowledged) → completado, avanzando solo con mensajes del transcript del
   hub posteriores al envío (nunca se marca completada por el simple envío).
+- **E2E VERIFICADO (2026-10-11)**: control real completo vía hub — sesión
+  interactiva desechable, dos instrucciones a la misma sesión con respuestas
+  reales del modelo ("Azul." y "4"), identidad persistente, personaje con
+  estados reales (idle/working), auditoría completa y cierre seguro.
+  Semántica del hub descubierta y documentada: `interactive: true` persiste
+  entre turnos; one-shot muere tras el primero; `completed` de una sesión
+  interactiva viva = `idle` en la oficina. Proveedor usado (config del
+  operador): `cline`/`cline-free/mimo-v2.6-flash` (gratuito, sin claves);
+  NVIDIA `z-ai/glm-5.3` soportado cambiando config.
+- **HubSessionObserver**: las sesiones lanzadas por la oficina aparecen como
+  personajes REALES con estados derivados del API del hub (nada inventado),
+  integradas al orquestador con la política de ocupación existente.
 - **Seguridad**: `OFFICE_WS_TOKEN` (auth del WebSocket), validación de Origin
   en despliegues no-loopback, rotación de auditoría JSONL.
 - **Despliegue reproducible**: producción en un solo proceso (UI compilada

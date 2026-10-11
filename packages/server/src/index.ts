@@ -7,7 +7,7 @@ import { OfficeRoom } from './rooms/OfficeRoom';
 import { loadDotEnv, loadConfig, describeConfig } from './config';
 import { registerExternalRoutes } from './external/routes';
 import { createRealAgentsOrchestrator } from './integrations';
-import { createControlRuntime } from './integrations/control';
+import { createControlRuntime, HubSessionObserver } from './integrations/control';
 import { registerControlRoutes } from './control/routes';
 import { LocalTaskStore } from './integrations/tasks/TaskStore';
 import { UnavailableDshTaskProvider } from './integrations/dsh/DshTaskProvider';
@@ -129,7 +129,12 @@ colyseusServer.listen(config.port, config.host).then(() => {
         console.log('[Server] No LLM inference, tools or autonomous actions will run.');
         // ─── Block 2: observe REAL Cline sessions (read-only) ───
         if (config.realAgentsEnabled) {
-            const orchestrator = createRealAgentsOrchestrator(config);
+            // Block 5: office-launched hub sessions join the office as
+            // real characters (states derived from live hub evidence).
+            const orchestrator = createRealAgentsOrchestrator(
+                config,
+                controlRuntime.hubObserver as HubSessionObserver
+            );
             orchestrator.start();
             const shutdown = () => { orchestrator.stop(); process.exit(0); };
             process.on('SIGINT', shutdown);
