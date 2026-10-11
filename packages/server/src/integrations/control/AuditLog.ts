@@ -47,4 +47,21 @@ export class AuditLog {
     static sanitizePrompt(prompt: string): string {
         return sanitizeMessageText(prompt, 500);
     }
+
+    /**
+     * Block 5 (FASE E): size-based rotation. When the JSONL exceeds
+     * `maxBytes`, it is moved to `<file>.1` (previous .1 is dropped)
+     * and a fresh file starts — bounded disk usage, audit preserved.
+     */
+    rotateIfNeeded(maxBytes = 1_000_000): void {
+        try {
+            const stat = fs.statSync(this.filePath);
+            if (stat.size < maxBytes) return;
+            const rotated = this.filePath + '.1';
+            if (fs.existsSync(rotated)) fs.unlinkSync(rotated);
+            fs.renameSync(this.filePath, rotated);
+        } catch {
+            // file missing — nothing to rotate
+        }
+    }
 }

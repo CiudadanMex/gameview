@@ -2,6 +2,7 @@ import { ServerConfig } from '../../config';
 import { ClineControlAdapter } from './ClineControlAdapter';
 import { InstructionService } from './InstructionService';
 import { AuditLog } from './AuditLog';
+import { HubSessionLauncher } from './HubSessionLauncher';
 import { OfficeRoom } from '../../rooms/OfficeRoom';
 import * as path from 'path';
 
@@ -12,11 +13,13 @@ export type { AuditEntry } from './AuditLog';
 export { AuditLog } from './AuditLog';
 export type { ControlCapabilities } from './ControlCapabilities';
 export { BLOCKED_DISPATCH_REASONS } from './ControlCapabilities';
+export { HubSessionLauncher } from './HubSessionLauncher';
+export type { ManagedSessionInfo } from './HubSessionLauncher';
 
 /**
- * Block 4 — assembles the control runtime (adapter, instruction
- * pipeline, audit) from the server config. Everything is instantiated
- * once per server process.
+ * Block 4/5 — assembles the control runtime (adapter, instruction
+ * pipeline, audit, hub session launcher) from the server config.
+ * Everything is instantiated once per server process.
  */
 export function createControlRuntime(config: ServerConfig) {
     const adapter = new ClineControlAdapter(config);
@@ -35,5 +38,24 @@ export function createControlRuntime(config: ServerConfig) {
             }));
         }
     });
-    return { adapter, audit, instructions };
+    const launcher = new HubSessionLauncher(config, adapter, audit);
+
+    // Block 5 (FASE C): lifecycle poller — advances dispatched
+    // instructions using REAL hub transcript evidence.
+    const lifecycleTimer = setInterval(async () => {
+        try {
+            const refreshable = instructions.listRefreshable();
+            for (const record of refreshable) {
+                const transcript = await adapter.readHubTranscript(record.sessionId);
+                if (transcript.length > 0) {
+                    await instructions.refreshFromHub(record.requestId, transcript);
+                }
+            }
+        } catch {
+            // transient hub errors keep the last state — never crash
+        }
+    }, config.clinePollIntervalMs);
+    lifecycleTimer.unref?.();
+
+    return { adapter, audit, instructions, launcher };
 }

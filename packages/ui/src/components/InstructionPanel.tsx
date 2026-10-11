@@ -12,6 +12,11 @@ import { controlJson } from '../controlApi';
  * No arbitrary shell commands: free-text instructions to a validated
  * real session only.
  */
+interface AgentCapability {
+    id: string; name: string; status: string;
+    kind: 'managed' | 'observed' | 'completed' | 'disconnected';
+    controllable: boolean;
+}
 interface Capabilities {
     controlEnabled: boolean;
     dispatchConfigEnabled: boolean;
@@ -22,22 +27,31 @@ interface Capabilities {
         dispatchAvailable: boolean;
         dispatchCause: string;
     };
-    agents: Array<{ id: string; name: string; status: string }>;
+    agents: AgentCapability[];
     dsh: string;
 }
 interface Instruction {
     requestId: string; sessionId: string; sessionName: string;
     prompt: string; state: string; pendingDispatchCause?: string; error?: string;
+    dispatchedAt?: number; completedAt?: number; response?: string;
 }
 
 const STATE_LABELS: Record<string, { label: string; color: string }> = {
     draft: { label: 'Borrador', color: '#a29bfe' },
     pending_approval: { label: 'Pendiente de aprobación', color: '#fdcb6e' },
     approved: { label: 'Aprobada (pendiente de envío)', color: '#74b9ff' },
-    dispatched: { label: 'Enviada', color: '#55efc4' },
-    acknowledged: { label: 'Acuse recibido', color: '#00b894' },
+    dispatched: { label: 'Enviada al agente', color: '#55efc4' },
+    acknowledged: { label: 'Recibida — ejecutándose', color: '#00cec9' },
+    completed: { label: 'Completada (respuesta real)', color: '#00b894' },
     rejected: { label: 'Rechazada', color: '#ff7675' },
     failed: { label: 'Fallida', color: '#ff7675' }
+};
+
+const KIND_LABELS: Record<string, string> = {
+    managed: '🎮 Gestionada por hub',
+    observed: '👁 Observada (solo lectura)',
+    completed: '✅ Finalizada',
+    disconnected: '💤 Desconectada'
 };
 
 export function InstructionPanel() {
@@ -76,6 +90,11 @@ export function InstructionPanel() {
     const dispatch = caps?.capabilities.dispatchAvailable ?? false;
     const agent = caps?.agents.find(a => a.id === selected);
 
+    // Block 5 (FASE B): only HUB-MANAGED sessions may receive
+    // instructions; observed TUI sessions are read-only by nature.
+    const controllableAgents = (caps?.agents || []).filter(a => a.controllable);
+    const canCreateDraft = Boolean(selected) && Boolean(prompt.trim()) && Boolean(agent?.controllable);
+
     return (
         <div style={{
             position: 'absolute', right: 20, bottom: 20, width: 330,
@@ -100,20 +119,27 @@ export function InstructionPanel() {
                 style={{ width: '100%', padding: '6px', borderRadius: 6, border: '1px solid #444', background: '#1a1a3e', color: 'white', fontSize: '11px', marginBottom: 6 }}>
                 <option value="">— selecciona agente (sesión real) —</option>
                 {(caps?.agents || []).map(a => (
-                    <option key={a.id} value={a.id}>{a.name} · {a.status}</option>
+                    <option key={a.id} value={a.id} style={{ color: a.controllable ? '#55efc4' : '#888' }}>
+                        {a.name} · {KIND_LABELS[a.kind] || a.kind}
+                    </option>
                 ))}
             </select>
-            {agent && (
-                <p style={{ margin: '0 0 6px 0', fontSize: '9px', color: '#888' }}>
+            {agent && !agent.controllable && (
+                <p style={{ margin: '0 0 6px 0', fontSize: '9px', color: '#ff7675' }}>
+                    ⚠ Esta sesión es {KIND_LABELS[agent.kind] || agent.kind}: NO admite instrucciones. Selecciona una sesión 🎮 gestionada por hub.
+                </p>
+            )}
+            {agent && agent.controllable && (
+                <p style={{ margin: '0 0 6px 0', fontSize: '9px', color: '#55efc4' }}>
                     sesión real: {agent.id}
                 </p>
             )}
             <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)}
                 placeholder="Instrucción para el agente (solo se envía tras aprobación explícita)…"
                 style={{ width: '100%', height: 52, padding: '6px 8px', borderRadius: 6, border: '1px solid #444', background: '#1a1a3e', color: 'white', fontSize: '11px', boxSizing: 'border-box', resize: 'none' }} />
-            <button onClick={() => void startDraft()} disabled={!selected || !prompt.trim()}
-                style={{ width: '100%', marginTop: 4, padding: '6px', borderRadius: 6, border: 'none', background: (!selected || !prompt.trim()) ? '#2d3436' : '#6c5ce7', color: 'white', fontSize: '11px', cursor: 'pointer' }}>
-                📝 Guardar borrador
+            <button onClick={() => void startDraft()} disabled={!canCreateDraft}
+                style={{ width: '100%', marginTop: 4, padding: '6px', borderRadius: 6, border: 'none', background: !canCreateDraft ? '#2d3436' : '#6c5ce7', color: 'white', fontSize: '11px', cursor: 'pointer' }}>
+                📝 Guardar borrador {agent && !agent.controllable ? '(solo sesiones 🎮)' : ''}
             </button>
 
             {message && <p style={{ margin: '6px 0 0 0', fontSize: '10px', color: '#ff7675' }}>{message}</p>}
@@ -132,6 +158,11 @@ export function InstructionPanel() {
                             <div style={{ fontSize: '9px', color: meta.color, marginTop: 2 }}>{meta.label}</div>
                             {ins.pendingDispatchCause && (
                                 <div style={{ fontSize: '9px', color: '#888', marginTop: 2 }}>⏸ {ins.pendingDispatchCause.slice(0, 100)}</div>
+                            )}
+                            {ins.response && (
+                                <div style={{ fontSize: '9px', color: '#7fcdaa', marginTop: 2, background: 'rgba(0,184,148,0.08)', padding: '3px 5px', borderRadius: 4 }}>
+                                    💬 {ins.response.slice(0, 120)}
+                                </div>
                             )}
                             {ins.error && <div style={{ fontSize: '9px', color: '#ff7675', marginTop: 2 }}>⚠ {ins.error.slice(0, 100)}</div>}
                             {ins.state === 'draft' && (

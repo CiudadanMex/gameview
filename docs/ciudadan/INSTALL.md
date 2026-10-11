@@ -1,112 +1,120 @@
 # Instalación de Ciudadan AgentOffice (máquinas Oracle)
 
-> Guía reproducible para instalar una instancia independiente de AgentOffice por desarrollador, en la misma máquina donde corren su DSH y sus agentes Cline. Todo escucha **solo en 127.0.0.1** (sin exposición pública).
+> Guía reproducible: **una oficina por desarrollador**, hasta 7 agentes Cline. Producción en un solo proceso, todo en `127.0.0.1` (sin exposición pública).
 
 ## Requisitos
 
 | Requisito | Versión verificada | Nota |
 |-----------|--------------------|------|
 | Node.js | v22.x (verificado: v22.23.3) | `node -v` |
-| npm | 10.x (verificado: 10.9.9) | viene con Node |
-| Git + clave SSH de GitHub | — | clave `ciudadan-agentoffice-agents` añadida a la cuenta |
-| Ollama | **NO necesario** | solo para modo `internal` |
-| Redis / Docker | **NO necesarios** | no se usan |
+| npm | 10.x | viene con Node |
+| Git + clave SSH de GitHub | — | añadida a la cuenta |
+| Cline (para observar/controlar) | v3.0.70 | opcional: sin Cline la oficina queda vacía |
+| Ollama / Redis / Docker-in-Docker | **NO necesarios** | — |
 
-## 1. Clonar el fork propio
+## 1. Clonar el fork
 
 ```bash
-cd ~/   # o el directorio de trabajo que prefieras
+cd ~
 git clone git@github.com:CiudadanMex/gameview.git agent-office
 cd agent-office
-git checkout feature/ciudadan-agentoffice-base   # rama del Bloque 1
+git checkout feature/ciudadan-agentoffice-base
 ```
 
-Remotes ya configurados en el fork: `origin` → `CiudadanMex/gameview` (push), `upstream` → `harishkotra/agent-office` (push bloqueado).
-
-## 2. Instalar dependencias
+## 2. Instalar y compilar
 
 ```bash
-npm ci          # instala los 5 workspaces (core, adapters, server, ui, cli)
+npm install          # workspaces core/adapters/server/ui
+npm run build        # produce packages/ui/dist + todos los dist
+npm test             # 105 pruebas (deben pasar todas)
 ```
 
-> No se instala ningún modelo de Ollama, no se levanta Redis ni Docker.
-
-## 3. Configurar variables (opcional)
+## 3. Configurar
 
 ```bash
 cp .env.example .env
-# Editar puertos si ya están ocupados:
-#   PORT (defecto 3000) y UI_PORT (defecto 5173)
+# Editar lo mínimo:
+#   CLINE_DATA_DIR=/workspace/.cline/data   (donde viven TUS sesiones)
+#   AGENTOFFICE_CONTROL_TOKEN=<openssl rand -hex 16>   (escrituras)
 ```
 
-Variables clave (todas con valores por defecto seguros):
-- `AGENT_OFFICE_MODE=external` — modo desacoplado (sin LLM)
-- `HOST=127.0.0.1`, `PORT=3000` — servidor Colyseus+REST
-- `UI_HOST=127.0.0.1`, `UI_PORT=5173` — UI (Vite)
-- `EXTERNAL_DEMO_MODE=false` — datos de prueba `[DEMO]` (solo para verificar la UI)
+Todas las variables están documentadas en `.env.example`. Puertos por defecto: servidor `3000` (API+WS+UI), UI dev `5173` (solo desarrollo).
 
-## 4. Compilar
+## 4. Arrancar (elige UNA vía)
+
+**A. Producción — un solo proceso (recomendado):**
 
 ```bash
-npm run build      # compila todos los workspaces en orden
-npm test           # ejecuta los tests (core, adapters, server)
+./scripts/office.sh start     # API + WebSocket + UI compilada en :3000
+./scripts/office.sh status   # salud + proceso
+# → http://127.0.0.1:3000
 ```
 
-## 5. Arrancar (modo externo)
+El script usa archivo PID: no crea duplicados, verifica salud en `/api/health` y para limpiamente. Otros comandos: `stop`, `restart`, `health`, `logs`.
 
-Terminal A — servidor (Colyseus + REST en 127.0.0.1:3000):
+**B. Docker (autoarranque + healthcheck):**
 
 ```bash
-npm run start --workspace=@agent-office/server
-# [Server] AgentOffice Engine listening on ws://127.0.0.1:3000
-# [Server] mode=external ... seats=7 ... demoData=off
+docker compose up -d --build
+docker compose ps          # healthcheck cada 30s, restart: unless-stopped
 ```
 
-Terminal B — interfaz (Vite en 127.0.0.1:5173):
+**C. Desarrollo (Vite HMR):**
 
 ```bash
-npm run dev --workspace=@agent-office/ui
+npm run dev --workspace=@agent-office/ui   # :5173 con proxy /api → :3000
 ```
 
-> La sala `office` se crea al abrir la UI por primera vez. En modo externo NO se destruye al cerrar el navegador, así que los agentes registrados persisten mientras viva el proceso del servidor.
+## 5. Supervisor de procesos (importante)
 
-## 6. Acceso privado
+Este entorno contenedorizado NO tiene systemd (PID 1 = sshd). La causa de las sesiones tmux que desaparecen es el **relanzamiento del agente por la plataforma**, que mata el árbol de procesos (incluido el servidor tmux) — no es un fallo de la oficina. Recomendaciones:
 
-- **Local (en la máquina)**: <http://127.0.0.1:5173>
-- **Desde tu equipo vía SSH** (túnel):
+- **Producción**: Docker con `restart: unless-stopped` (compose ya lo trae) — el contenedor revive el proceso.
+- **Sin Docker**: `./scripts/office.sh start` tras cada relanzamiento del agente, o intégralo a tu supervisor de host (cron `@reboot`, systemd del HOST, etc.).
+
+## 6. Conectar Cline
+
+**Observación**: `CLINE_DATA_DIR` apunta al data dir de Cline (lectura exclusiva de `sessions.db` + JSONs). Sin credenciales.
+
+**Control real** (sesiones gestionadas por hub — ver README § Conectar Cline):
 
 ```bash
-ssh -L 5173:127.0.0.1:5173 -L 3000:127.0.0.1:3000 usuario@maquina-oracle
-# luego abre http://localhost:5173 en tu navegador
+cline auth -p nvidia -k <TU-CLAVE> -m z-ai/glm-5.3   # procedimiento oficial del operador
+# .env: INSTRUCTION_DISPATCH_ENABLED="true"
+./scripts/office.sh restart
 ```
 
-## 7. Verificación rápida
+## 7. Acceso privado
+
+- Local: <http://127.0.0.1:3000>
+- SSH: `ssh -L 3000:127.0.0.1:3000 usuario@oracle` → <http://localhost:3000>
+- Remoto: proxy privado (Tailscale / Cloudflare Access). Si usas WS token: `OFFICE_WS_TOKEN` + URL `?wstoken=…`; si publicas el host: `ALLOWED_ORIGIN`.
+
+## 8. Actualización
 
 ```bash
-# Salud del servidor + modo
-curl -s http://127.0.0.1:3000/api/offices
-# → {"status":"ok","offices":[],"mode":"external",...}
-
-# Interfaz externa (tras abrir la UI una vez)
-curl -s http://127.0.0.1:3000/api/external/status
+git pull origin feature/ciudadan-agentoffice-base
+npm install && npm run build && npm test
+./scripts/office.sh restart   # o: docker compose up -d --build
 ```
 
-Prueba con datos de prueba (opcional, claramente identificados como `[DEMO]`):
+## 9. Respaldo y recuperación
+
+Datos persistentes en `packages/server/data/`:
+
+| Archivo/directorio | Contenido |
+|---|---|
+| `office-memory.db` | Tareas/layouts de la oficina |
+| `office-tasks.db` | Propuestas y sprints |
+| `control-audit.jsonl` | Auditoría de control (rotativa) |
+| `hub-workspaces/` | Workspaces aislados de sesiones gestionadas |
 
 ```bash
-EXTERNAL_DEMO_MODE=true npm run start --workspace=@agent-office/server
-# Verás 7 agentes [DEMO] caminando a sus puestos
+# respaldo
+tar czf office-backup-$(date +%F).tgz packages/server/data
+# recuperación
+tar xzf office-backup-<fecha>.tgz -C packages/server/ && ./scripts/office.sh restart
 ```
 
-## 8. Convivencia con DSH/Cline
+Nunca se tocan las conversaciones de Cline (`/workspace/.cline` es de solo lectura para la oficina).
 
-- El servidor (3000) y la UI (5173) **no interfieren** con DSH/Cline (hub en 127.0.0.1:25463) ni con sus sesiones tmux.
-- No se modifica ni reinicia ningún servicio ajeno al proyecto.
-- El modo `external` no hace llamadas de red salvo localhost (sin LLM, sin búsquedas web).
-
-## 9. Mantener sincronizado con upstream
-
-```bash
-git fetch upstream
-git merge upstream/main     # en la rama que toque, nunca en main directamente
-```

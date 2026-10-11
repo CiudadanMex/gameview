@@ -181,6 +181,83 @@ export class ClineControlAdapter {
         }
     }
 
+    /**
+     * Block 5 (FASE B): starts a NEW hub-managed session with a
+     * persistent id, restrictive tool permissions and an ISOLATED
+     * workspace. Never touches existing TUI sessions.
+     */
+    async startManagedSession(input: {
+        providerId: string;
+        modelId: string;
+        workspaceDir: string;
+        systemPrompt: string;
+        prompt?: string;
+        enableTools: boolean;
+    }): Promise<{ ok: boolean; sessionId?: string; error?: string }> {
+        const core = await this.connect();
+        if (!core) return { ok: false, error: 'hub no conectado' };
+        try {
+            const result = await core.start({
+                source: 'agentoffice',
+                config: {
+                    providerId: input.providerId,
+                    modelId: input.modelId,
+                    cwd: input.workspaceDir,
+                    workspaceRoot: input.workspaceDir,
+                    mode: 'act',
+                    enableTools: input.enableTools,
+                    enableSpawnAgent: false,
+                    enableAgentTeams: false,
+                    systemPrompt: input.systemPrompt
+                },
+                prompt: input.prompt,
+                interactive: false
+            });
+            const sessionId = String(result?.sessionId || '');
+            if (!sessionId) return { ok: false, error: 'el hub no devolvió sessionId' };
+            return { ok: true, sessionId };
+        } catch (e: any) {
+            return { ok: false, error: String(e?.message || e).slice(0, 250) };
+        }
+    }
+
+    /**
+     * Block 5 (FASE C): reads the tail of a hub session transcript —
+     * REAL evidence used to advance instruction states (acknowledged /
+     * completed). Only structural info is returned, never full content.
+     */
+    async readHubTranscript(sessionId: string): Promise<Array<{ role: string; ts: number; text: string }>> {
+        const core = await this.connect();
+        if (!core) return [];
+        try {
+            const messages = await core.readMessages(sessionId);
+            if (!Array.isArray(messages)) return [];
+            return messages.map((m: any) => {
+                const blocks = Array.isArray(m?.content) ? m.content : [];
+                const textBlock = blocks.find((b: any) => b?.type === 'text');
+                return {
+                    role: String(m?.role || ''),
+                    ts: Number(m?.ts || 0),
+                    text: typeof textBlock?.text === 'string' ? textBlock.text : ''
+                };
+            });
+        } catch {
+            return [];
+        }
+    }
+
+    /** Stops a hub-managed session (graceful end of a test/managed run). */
+    async stopManagedSession(sessionId: string): Promise<{ ok: boolean; error?: string }> {
+        const core = await this.connect();
+        if (!core) return { ok: false, error: 'hub no conectado' };
+        try {
+            await core.stop(sessionId);
+            return { ok: true };
+        } catch (e: any) {
+            return { ok: false, error: String(e?.message || e).slice(0, 200) };
+        }
+    }
+
     async dispose(): Promise<void> {
         try { await this.core?.dispose?.(); } catch { /* ignore */ }
         this.core = null;

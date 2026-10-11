@@ -1,6 +1,6 @@
 import { Express, Request, Response, NextFunction } from 'express';
 import { ServerConfig } from '../config';
-import { ClineControlAdapter, InstructionService, AuditLog } from '../integrations/control';
+import { ClineControlAdapter, InstructionService, AuditLog, HubSessionLauncher } from '../integrations/control';
 import { TaskProvider, OfficeTaskStatus } from '../integrations/tasks/TaskStore';
 import { DshTaskProvider } from '../integrations/dsh/DshTaskProvider';
 import { ClineTeamsObserver } from '../integrations/dsh/ClineTeamsObserver';
@@ -26,6 +26,7 @@ export interface ControlRuntime {
     tasks: TaskProvider;
     dsh: DshTaskProvider;
     clineTeams: ClineTeamsObserver;
+    launcher: HubSessionLauncher;
 }
 
 export function registerControlRoutes(app: Express, config: ServerConfig, runtime: ControlRuntime): void {
@@ -51,13 +52,27 @@ export function registerControlRoutes(app: Express, config: ServerConfig, runtim
     app.get('/api/control/capabilities', async (req: Request, res: Response) => {
         const caps = await runtime.adapter.getCapabilities();
         const bridge = OfficeRoom.getActiveRoom()?.getExternalBridge();
+        const hubSessions = await runtime.adapter.listHubSessions();
+        const hubIds = new Set(hubSessions.map(s => s.sessionId));
         res.json({
             ok: true,
             controlEnabled: Boolean(config.controlToken),
             dispatchConfigEnabled: config.instructionDispatchEnabled,
             capabilities: caps,
             agents: bridge
-                ? bridge.getStatus().agents.map(a => ({ id: a.id, name: a.name, status: a.status }))
+                ? bridge.getStatus().agents.map(a => ({
+                    id: a.id,
+                    name: a.name,
+                    status: a.status,
+                    // Session kind (FASE B): hub-managed sessions can
+                    // receive instructions; TUI ones are read-only.
+                    kind: runtime.launcher.isLaunched(a.id) ? 'managed'
+                        : hubIds.has(a.id) ? 'managed'
+                        : a.status === 'completed' ? 'completed'
+                        : a.status === 'offline' ? 'disconnected'
+                        : 'observed',
+                    controllable: hubIds.has(a.id)
+                }))
                 : [],
             dsh: runtime.dsh.describe()
         });
@@ -173,6 +188,34 @@ export function registerControlRoutes(app: Express, config: ServerConfig, runtim
     // ── READ: audit tail (sanitized; accountability) ──
     app.get('/api/control/audit', (req: Request, res: Response) => {
         res.json({ ok: true, entries: runtime.audit.tail(50) });
+    });
+
+    // ── Block 5 (FASE B): hub-managed sessions ──
+    // Launch a NEW hub session (isolated workspace, restrictive tools).
+    app.post('/api/control/sessions', requireWriteAuth, async (req: Request, res: Response) => {
+        const result = await runtime.launcher.launch({
+            prompt: String((req.body || {}).prompt || '') || undefined,
+            actor: 'operator'
+        });
+        if (!result.ok) { res.status(400).json({ ok: false, error: result.error }); return; }
+        res.status(201).json({ ok: true, session: result.session });
+    });
+
+    // List office-launched sessions + hub visibility.
+    app.get('/api/control/sessions', async (req: Request, res: Response) => {
+        const hubSessions = await runtime.adapter.listHubSessions();
+        res.json({
+            ok: true,
+            launched: runtime.launcher.listLaunched(),
+            hubSessions
+        });
+    });
+
+    // Gracefully stop an office-launched session (never a TUI one).
+    app.delete('/api/control/sessions/:id', requireWriteAuth, async (req: Request, res: Response) => {
+        const result = await runtime.launcher.stop(req.params.id, 'operator');
+        if (!result.ok) { res.status(400).json({ ok: false, error: result.error }); return; }
+        res.json({ ok: true });
     });
 
     console.log('[Server] Control center REST registered under /api/control ' +

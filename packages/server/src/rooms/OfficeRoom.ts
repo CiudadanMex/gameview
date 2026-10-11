@@ -86,6 +86,20 @@ export class OfficeRoom extends Room<OfficeState> {
         return OfficeRoom.activeRoom;
     }
 
+    /**
+     * Block 5 (FASE E): optional WebSocket authentication. When
+     * OFFICE_WS_TOKEN is configured, every Colyseus join must present
+     * it (join options { token }) — protects private office data over
+     * remote channels (Tailscale/Cloudflare proxy front-ends).
+     */
+    onAuth(client: Client, options: any): boolean {
+        if (!this.serverConfig.officeWsToken) return true; // localhost mode
+        const presented = String(options?.token || '');
+        if (presented === this.serverConfig.officeWsToken) return true;
+        console.log(`[OfficeRoom] WS auth REJECTED for ${client.sessionId} (token inválido).`);
+        return false;
+    }
+
     /** External bridge accessor — null while running in internal mode. */
     getExternalBridge(): ExternalBridge | null {
         return this.externalBridge ?? null;

@@ -115,6 +115,28 @@ Instalación reproducible (máquinas Oracle): [`docs/ciudadan/INSTALL.md`](./doc
 - **DSH**: contrato de proveedor tipado (`DshTaskProvider`) con todo
   marcado no disponible — sin endpoints inventados.
 
+## Bloque 5 — MVP web final
+
+- **Sesiones gestionadas por hub**: `HubSessionLauncher` (workspace aislado por
+  sesión, permisos restrictivos `HUB_SESSION_TOOLS=false`, ids persistentes,
+  auditoría) + endpoints `POST/GET/DELETE /api/control/sessions`. La UI marca
+  cada sesión como 🎮 gestionada (controlable), 👁 observada (TUI, solo
+  lectura), ✅ finalizada o 💤 desconectada — imposible enviar instrucciones a
+  una sesión que no lo admite.
+- **Ciclo completo de instrucciones con evidencia real**: enviado → recibido
+  (acknowledged) → completado, avanzando solo con mensajes del transcript del
+  hub posteriores al envío (nunca se marca completada por el simple envío).
+- **Seguridad**: `OFFICE_WS_TOKEN` (auth del WebSocket), validación de Origin
+  en despliegues no-loopback, rotación de auditoría JSONL.
+- **Despliegue reproducible**: producción en un solo proceso (UI compilada
+  servida por el propio servidor en :3000, sin Vite), `/api/health`,
+  `Dockerfile` + `docker-compose.yml` (restart + healthcheck) y
+  `scripts/office.sh` (start/stop/restart/status/health/logs sin duplicados).
+  Causa tmux documentada: relanzamiento del agente por la plataforma (PID 1 =
+  sshd, sin systemd); supervisor recomendado = Docker.
+- **README público** con tabla de funcionalidades comprobadas, limitaciones,
+  conexión Cline, DSH y plan Discord.
+
 ## Puertos y variables
 
 | Variable | Defecto | Descripción |

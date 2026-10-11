@@ -26,6 +26,7 @@ export type InstructionState =
     | 'approved'
     | 'dispatched'
     | 'acknowledged'
+    | 'completed'
     | 'rejected'
     | 'failed';
 
@@ -39,6 +40,12 @@ export interface InstructionRecord {
     updatedAt: string;
     /** Why dispatch is blocked, when it is (honest cause). */
     pendingDispatchCause?: string;
+    /** Epoch ms when the adapter accepted the dispatch (real send). */
+    dispatchedAt?: number;
+    /** Epoch ms when completion was observed with transcript evidence. */
+    completedAt?: number;
+    /** Real response observed in the hub transcript (sanitized tail). */
+    response?: string;
     error?: string;
 }
 
@@ -227,6 +234,7 @@ export class InstructionService {
         const result = await this.deps.adapter.dispatch(record.sessionId, record.prompt);
         if (result.ok) {
             record.state = 'dispatched';
+            record.dispatchedAt = this.now();
             record.pendingDispatchCause = undefined;
             this.deps.audit.record({
                 action: 'instruction.dispatch',
@@ -249,5 +257,63 @@ export class InstructionService {
         }
         record.updatedAt = new Date(this.now()).toISOString();
         return { ok: true, record };
+    }
+
+    /**
+     * Block 5 (FASE C): advances dispatched instructions using REAL
+     * transcript evidence from the hub — never assumptions.
+     *  - 'acknowledged': an assistant response appeared AFTER dispatch.
+     *  - 'completed': the response finished (no newer activity) and the
+     *    session is no longer mid-turn.
+     */
+    async refreshFromHub(requestId: string, transcript: Array<{ role: string; ts: number; text: string }>): Promise<InstructionRecord | undefined> {
+        const record = this.records.get(requestId);
+        if (!record || !record.dispatchedAt) return record;
+        if (record.state !== 'dispatched' && record.state !== 'acknowledged') return record;
+
+        const dispatchedAt = record.dispatchedAt;
+        const after = transcript.filter(m => m.ts > dispatchedAt);
+        const assistantAfter = after.filter(m => m.role === 'assistant');
+
+        if (record.state === 'dispatched' && assistantAfter.length > 0) {
+            record.state = 'acknowledged';
+            record.updatedAt = new Date(this.now()).toISOString();
+            this.deps.audit.record({
+                action: 'instruction.refresh',
+                actor: 'system',
+                requestId,
+                targetSession: record.sessionId,
+                result: 'acknowledged (respuesta real observada)'
+            });
+        }
+
+        // 'completed' requires evidence the turn finished: an assistant
+        // text response exists after dispatch AND the transcript shows no
+        // pending tool activity. With tools disabled (default), a final
+        // assistant text is the completion evidence.
+        if ((record.state === 'acknowledged') && assistantAfter.length > 0) {
+            const lastMsg = transcript[transcript.length - 1];
+            const hasFinalText = assistantAfter.some(m => m.text && m.text.trim().length > 0);
+            if (hasFinalText && lastMsg && lastMsg.role === 'assistant' && lastMsg.text) {
+                record.state = 'completed';
+                record.completedAt = this.now();
+                record.response = lastMsg.text.slice(0, 400);
+                record.updatedAt = new Date(this.now()).toISOString();
+                this.deps.audit.record({
+                    action: 'instruction.refresh',
+                    actor: 'system',
+                    requestId,
+                    targetSession: record.sessionId,
+                    result: 'completed (respuesta final observada)'
+                });
+            }
+        }
+        return record;
+    }
+
+    /** Instructions awaiting hub-evidence refresh (for the poller). */
+    listRefreshable(): InstructionRecord[] {
+        return [...this.records.values()]
+            .filter(r => r.state === 'dispatched' || r.state === 'acknowledged');
     }
 }

@@ -2,6 +2,7 @@ import express from 'express';
 import { Server } from 'colyseus';
 import { createServer } from 'http';
 import * as path from 'path';
+import * as fs from 'fs';
 import { OfficeRoom } from './rooms/OfficeRoom';
 import { loadDotEnv, loadConfig, describeConfig } from './config';
 import { registerExternalRoutes } from './external/routes';
@@ -22,13 +23,36 @@ const config = loadConfig();
 const app = express();
 app.use(express.json());
 
+// Block 5 (FASE E): origin protection for non-loopback deployments.
+// Same-origin/local requests carry no Origin header (or an allowed
+// one); anything else is rejected unless ALLOWED_ORIGIN matches.
+app.use((req, res, next) => {
+    const isLoopback = config.host === '127.0.0.1' || config.host === 'localhost' || config.host === '::1';
+    const origin = req.header('origin');
+    if (isLoopback || !origin) { next(); return; }
+    if (config.allowedOrigin && origin === config.allowedOrigin) { next(); return; }
+    res.status(403).json({ ok: false, error: 'Origin no autorizado.' });
+    return;
+});
+
 // Basic REST API for Office Management
 app.get('/api/offices', (req, res) => {
     res.json({
         status: 'ok',
         offices: [],
         mode: config.mode,
-        version: 'ciudadan-agentoffice/block-1'
+        version: 'ciudadan-agentoffice/block-5'
+    });
+});
+
+// Block 5 (FASE F): lightweight health endpoint for supervisors,
+// Docker HEALTHCHECK and uptime probes.
+app.get('/api/health', (req, res) => {
+    res.json({
+        ok: true,
+        mode: config.mode,
+        uptime: Math.round(process.uptime()),
+        timestamp: new Date().toISOString()
     });
 });
 
@@ -70,7 +94,8 @@ registerControlRoutes(app, config, {
     audit: controlRuntime.audit,
     tasks: new LocalTaskStore('./data/office-tasks.db'),
     dsh: new UnavailableDshTaskProvider(),
-    clineTeams: new ClineTeamsObserver(config.clineDataDir)
+    clineTeams: new ClineTeamsObserver(config.clineDataDir),
+    launcher: controlRuntime.launcher
 });
 
 // Create HTTP and Colyseus server
@@ -81,6 +106,19 @@ const colyseusServer = new Server({
 
 // Define Rooms — the resolved orchestration mode travels with the room.
 colyseusServer.define('office', OfficeRoom, { mode: config.mode });
+
+// Block 5 (FASE F): production mode — a single process serves the
+// compiled UI (packages/ui/dist) alongside the API/WebSocket, so the
+// MVP does not depend on the Vite dev server.
+const uiDist = path.resolve(__dirname, '../../ui/dist');
+if (fs.existsSync(path.join(uiDist, 'index.html'))) {
+    app.use(express.static(uiDist));
+    // SPA fallback: any non-/api route serves the app.
+    app.get(/^\/(?!api\/).*/, (req, res) => {
+        res.sendFile(path.join(uiDist, 'index.html'));
+    });
+    console.log('[Server] Production UI served from packages/ui/dist (single-process mode).');
+}
 
 // Start listening — bound to config.host (127.0.0.1 by default,
 // so nothing is exposed publicly unless explicitly configured).

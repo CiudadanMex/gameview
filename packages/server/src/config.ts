@@ -58,6 +58,19 @@ export interface ServerConfig {
     clineHubRecordPath: string;
     /** Max instruction requests per minute (global rate limit). */
     instructionRatePerMinute: number;
+    // ─── Block 5: hub-managed sessions ───
+    /** Provider/model used for office-launched hub sessions. */
+    hubProviderId: string;
+    hubModelId: string;
+    /** Restrictive tool permissions for managed sessions (default off). */
+    hubSessionTools: boolean;
+    /** Isolated workspace root for managed sessions (one dir per session). */
+    hubSessionWorkspaces: string;
+    // ─── Block 5: security ───
+    /** Optional token; when set, Colyseus WebSocket joins must present it. */
+    officeWsToken?: string;
+    /** When HOST is public: only this Origin may call the REST API. */
+    allowedOrigin?: string;
 }
 
 /**
@@ -144,7 +157,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
         instructionDispatchEnabled: toBool(env.INSTRUCTION_DISPATCH_ENABLED, false),
         clineSdkPath: (env.CLINE_SDK_PATH || '/usr/lib/node_modules/cline/node_modules/@cline/core/dist/index.js').trim(),
         clineHubRecordPath: (env.CLINE_HUB_RECORD_PATH || '~/.cline/data/locks/hub/production.json').trim().replace(/^~/, () => process.env.HOME || ''),
-        instructionRatePerMinute: clampInt(Number(env.INSTRUCTION_RATE_PER_MINUTE || 10) || 10, 1, 120)
+        instructionRatePerMinute: clampInt(Number(env.INSTRUCTION_RATE_PER_MINUTE || 10) || 10, 1, 120),
+        hubProviderId: (env.HUB_PROVIDER_ID || 'nvidia').trim(),
+        hubModelId: (env.HUB_MODEL_ID || 'z-ai/glm-5.3').trim(),
+        hubSessionTools: toBool(env.HUB_SESSION_TOOLS, false),
+        hubSessionWorkspaces: (env.HUB_SESSION_WORKSPACES || './data/hub-workspaces').trim(),
+        officeWsToken: (env.OFFICE_WS_TOKEN || '').trim() || undefined,
+        allowedOrigin: (env.ALLOWED_ORIGIN || '').trim() || undefined
     };
 }
 

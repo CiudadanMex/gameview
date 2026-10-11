@@ -547,7 +547,16 @@ export class OfficeScene extends Phaser.Scene {
             const wsEndpoint = resolveWsEndpoint();
             this.statusText.setText(`Colyseus Sync: Connecting to ${wsEndpoint}...`).setColor('#ffffaa');
             const client = new Colyseus.Client(wsEndpoint);
-            this.room = await client.joinOrCreate('office');
+            // Block 5 (FASE E): optional WS token for remote deployments
+            // (query param ?wstoken= — kept in sessionStorage).
+            const joinOptions: Record<string, unknown> = {};
+            try {
+                const urlToken = new URLSearchParams(window.location.search).get('wstoken');
+                if (urlToken) sessionStorage.setItem('agent-office:ws-token', urlToken);
+                const savedToken = sessionStorage.getItem('agent-office:ws-token');
+                if (savedToken) joinOptions.token = savedToken;
+            } catch { /* sessionStorage unavailable — proceed without token */ }
+            this.room = await client.joinOrCreate('office', joinOptions);
 
             console.log("Room joined successfully!", this.room.sessionId);
             this.statusText.setText('Colyseus Sync: Connected (Waiting for state...)').setColor('#aaffaa');
