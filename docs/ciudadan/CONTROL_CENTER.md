@@ -34,7 +34,11 @@ REST de control (server, 127.0.0.1) ──► Auditoría JSONL
   ├─ InstructionService (máquina de estados + idempotencia + rate-limit)
   │     └─ ClineControlAdapter (@cline/core, hub) — capacidades honestas
   ├─ LocalTaskStore (propias SQLite: propuestas + sprints, sustituible por DSH)
-  └─ UnavailableDshTaskProvider (contrato FASE G, sin endpoints inventados)
+  └─ DshTaskProvider (contrato FASE G, sin endpoints inventados)
+        ├─ UnavailableDshTaskProvider (DSH_SOURCE=none, defecto honesto)
+        └─ HttpDshTaskProvider (DSH_SOURCE=http — REAL, Ciudadan Bloque 2)
+              endpoints: /api/control/dsh-tasks (propose|assign|results|
+              block|complete|clear), todos con token + auditoría
 ```
 
 El frontend nunca ejecuta nada directamente: todas las acciones pasan

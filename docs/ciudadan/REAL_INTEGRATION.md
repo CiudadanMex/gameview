@@ -48,19 +48,59 @@ Acción visual reutilizada: `working/editing/testing`→💻 escritorio,
 `reading`→💡 pensar, `waiting/idle/completed/offline`→😌, error→🚨 en
 el Inspector.
 
-## DSH (DeepSeek Harness) — impedimento verificado
+## DSH (DeepSeek Harness) — integración REAL (Ciudadan Bloque 2, 2026-10-26)
 
-**DSH no está instalado en esta máquina** (sin proceso, sin paquete
-npm global, sin directorio en /, /opt, /srv, /usr/local, /home,
-/workspace; sin Docker). El adaptador queda implementado como *slot*
-(`DshAdapter` + `UnavailableDshAdapter`):
-- `DSH_SOURCE=none` (defecto): documenta el impedimento en la propia
-  oficina (evento «DSH no disponible») y en los logs.
-- `DSH_SOURCE=http`: **falla rápido** con mensaje claro (reservado;
-  exige un endpoint real; nunca finge funcionar). `DSH_URL`/`DSH_TOKEN`
-  quedan documentados para cuando exista.
-- DSH seguirá siendo la fuente de verdad de sus tareas; la integración
-  es estrictamente de **lectura** (este bloque no crea/ejecuta tareas).
+El slot del Bloque 2 ya tiene una implementación real: **`HttpDshTaskProvider`**
+(`packages/server/src/integrations/dsh/HttpDshTaskProvider.ts`), activada con
+`DSH_SOURCE=http` + `DSH_URL` + `AGENTOFFICE_DSH_SESSION_ID` (+ opcional
+`AGENTOFFICE_DSH_CREDENTIALS`). Cableada en `index.ts` vía `createDshProvider()`;
+`DSH_SOURCE=none` mantiene `UnavailableDshTaskProvider` (compatibilidad).
+
+**Protocolo verificado** (leído del código vivo, cero endpoints inventados):
+`POST {DSH_URL}/api/{endpoint}` con body
+`{type:'client-request', rpcId, method, payload:{args}}` y respuesta
+`{rpcId, result:{ok:true,value}|{ok:false,error:{code,message}}}`. Remotos usados:
+`pluginInventory/list` (sonda de vida, lectura), `goals/create|pause|resume|complete|clear`
+(ciclo de vida completo de goals).
+
+**Autenticación real**: el webserver de DSH exige en cada `/api` la misma
+cookie firmada que el navegador obtiene al abrir la URL con token de
+lanzamiento (el token vive solo en memoria del proceso). El secreto
+**firmante** sí persiste en el almacén de credenciales del harness
+(dsh-credentials-local, registro `client-connection/browser-session`); el
+proveedor acuña con él la cookie firmada por autoridad — mismo mecanismo,
+nada nuevo inventado, el secreto nunca se registra ni se expone.
+
+**Mapeo semántico honesto** (tarea de oficina ↔ goal de DSH):
+- `proposeToDsh` → `goals/create` + `goals/pause` (propuesta aceptada,
+  DESARMADA: existe en DSH, no se ejecuta).
+- `requestAssignment` → `goals/resume` (ARMAR = asignación real; el driver
+  de rounds del harness ejecuta la sesión dueña).
+- `updateStatus('completed')` → `goals/complete`.
+- `notifyBlocker` → `goals/pause` + nota en el registro.
+- `removeFromDsh` → `goals/clear` (reversibilidad total).
+- `getResults` → último GoalView confirmado por RPC. DSH v1 no expone
+  lectura pasiva de goals: nunca se inventa una fase.
+
+**E2E verificado el 2026-10-26** contra un DSH real (127.0.0.1:3080,
+sesión top-level fría `session-80140f8c…`): goal real creado y desarmado
+(rev 2) → asignado (rev 3, armed) → **1 ronda autónoma real ejecutada**
+(el archivo de sesión creció +13 KB con turnos del modelo) → completado
+por RPC (rev 4, `roundsStarted:1`) → limpiado con `goals/clear`.
+Evidencia: auditoría JSONL de la oficina con las 4 acciones + registro
+SQLite origen `dsh` (`dsh-tasks.db`).
+
+**Limitaciones verificadas** (documentadas, no ocultas):
+- Las sesiones de subagentes no pueden poseer goals de primer nivel
+  (`session/agent-busy: owned by subagent routing`) — usar sesiones
+  top-level.
+- `goals/edit` con petición vacía lanza error (no existe lectura por
+  edit-noop).
+- El harness inyecta `DSH_SESSION_ID` propio en los procesos que lanza:
+  la variable de la oficina es `AGENTOFFICE_DSH_SESSION_ID` (el cargador
+  `.env` nunca pisa variables existentes).
+- Despliegue previsto: misma máquina o túnel SSH (la valla confía en
+  loopback/trustedHosts y la cookie es por autoridad).
 
 ### Tareas reales disponibles hoy
 

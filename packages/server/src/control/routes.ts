@@ -121,10 +121,11 @@ export function registerControlRoutes(app: Express, config: ServerConfig, runtim
 
     // ── READ: tasks (proposals + observed Cline teams + DSH state) ──
     app.get('/api/control/tasks', async (req: Request, res: Response) => {
-        const [proposals, observed, sprints] = await Promise.all([
+        const [proposals, observed, sprints, dshTasks] = await Promise.all([
             runtime.tasks.listTasks(),
             runtime.clineTeams.listTasks(),
-            runtime.tasks.listSprints()
+            runtime.tasks.listSprints(),
+            runtime.dsh.listTasks()
         ]);
         const dshAvailable = await runtime.dsh.available();
         res.json({
@@ -135,6 +136,7 @@ export function registerControlRoutes(app: Express, config: ServerConfig, runtim
                 assignee: t.assigneeId, dependencies: t.dependsOn, origin: 'cline' as const
             })),
             sprints,
+            dshTasks,
             dsh: { available: dshAvailable, description: runtime.dsh.describe() }
         });
     });
@@ -183,6 +185,88 @@ export function registerControlRoutes(app: Express, config: ServerConfig, runtim
         const task = await runtime.tasks.assignToSprint(req.params.id, sprintId ? String(sprintId) : null);
         if (!task) { res.status(404).json({ ok: false, error: 'Tarea no encontrada.' }); return; }
         res.json({ ok: true, task });
+    });
+
+    // ── Ciudadan Bloque 2: REAL DSH tasks (goals as tasks) ─────────────
+    // DSH stays the source of truth; these endpoints only drive the
+    // provider contract. Every write is token-protected and audited.
+    const dshRid = () => `dsh-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    app.post('/api/control/dsh-tasks', requireWriteAuth, async (req: Request, res: Response) => {
+        try {
+            const title = String((req.body || {}).title || '');
+            if (!title.trim()) { res.status(400).json({ ok: false, error: 'Falta el título.' }); return; }
+            const proposal = await runtime.dsh.createProposal({
+                title,
+                description: String((req.body || {}).description || '')
+            });
+            const result = await runtime.dsh.proposeToDsh(proposal);
+            if (!result.available) {
+                res.status(502).json({ ok: false, error: result.reason || 'DSH no aceptó la propuesta.' });
+                return;
+            }
+            runtime.audit.record({
+                action: 'dsh-task-propose', actor: 'operator', requestId: dshRid(),
+                result: 'ok', detail: `goal=${title}`
+            });
+            res.status(201).json({ ok: true, task: result.data });
+        } catch (e: any) {
+            res.status(400).json({ ok: false, error: String(e?.message || e) });
+        }
+    });
+
+    app.post('/api/control/dsh-tasks/:id/assign', requireWriteAuth, async (req: Request, res: Response) => {
+        const result = await runtime.dsh.requestAssignment(
+            req.params.id,
+            (req.body || {}).sessionId ? String((req.body || {}).sessionId) : undefined
+        );
+        if (!result.available) { res.status(400).json({ ok: false, error: result.reason }); return; }
+        runtime.audit.record({
+            action: 'dsh-task-assign', actor: 'operator', requestId: dshRid(),
+            result: 'ok', detail: req.params.id
+        });
+        res.json({ ok: true, task: result.data });
+    });
+
+    app.get('/api/control/dsh-tasks/:id/results', async (req: Request, res: Response) => {
+        const result = await runtime.dsh.getResults(req.params.id);
+        res.json({ ok: true, result });
+    });
+
+    app.post('/api/control/dsh-tasks/:id/block', requireWriteAuth, async (req: Request, res: Response) => {
+        const result = await runtime.dsh.notifyBlocker(
+            req.params.id, String((req.body || {}).description || '(sin detalle)')
+        );
+        if (!result.available) { res.status(400).json({ ok: false, error: result.reason }); return; }
+        runtime.audit.record({
+            action: 'dsh-task-block', actor: 'operator', requestId: dshRid(),
+            result: 'ok', detail: req.params.id
+        });
+        res.json({ ok: true });
+    });
+
+    app.post('/api/control/dsh-tasks/:id/complete', requireWriteAuth, async (req: Request, res: Response) => {
+        try {
+            const task = await runtime.dsh.updateStatus(req.params.id, 'completed');
+            if (!task) { res.status(404).json({ ok: false, error: 'Tarea DSH no encontrada.' }); return; }
+            runtime.audit.record({
+                action: 'dsh-task-complete', actor: 'operator', requestId: dshRid(),
+                result: 'ok', detail: req.params.id
+            });
+            res.json({ ok: true, task });
+        } catch (e: any) {
+            res.status(400).json({ ok: false, error: String(e?.message || e) });
+        }
+    });
+
+    app.post('/api/control/dsh-tasks/:id/clear', requireWriteAuth, async (req: Request, res: Response) => {
+        const result = await runtime.dsh.removeFromDsh(req.params.id);
+        if (!result.available) { res.status(400).json({ ok: false, error: result.reason }); return; }
+        runtime.audit.record({
+            action: 'dsh-task-clear', actor: 'operator', requestId: dshRid(),
+            result: 'ok', detail: req.params.id
+        });
+        res.json({ ok: true });
     });
 
     // ── READ: audit tail (sanitized; accountability) ──

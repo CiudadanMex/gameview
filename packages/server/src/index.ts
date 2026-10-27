@@ -10,7 +10,8 @@ import { createRealAgentsOrchestrator } from './integrations';
 import { createControlRuntime, HubSessionObserver } from './integrations/control';
 import { registerControlRoutes } from './control/routes';
 import { LocalTaskStore } from './integrations/tasks/TaskStore';
-import { UnavailableDshTaskProvider } from './integrations/dsh/DshTaskProvider';
+import { DshTaskProvider, UnavailableDshTaskProvider } from './integrations/dsh/DshTaskProvider';
+import { HttpDshTaskProvider } from './integrations/dsh/HttpDshTaskProvider';
 import { ClineTeamsObserver } from './integrations/dsh/ClineTeamsObserver';
 
 // Load optional .env files (never overrides variables already set in
@@ -88,12 +89,33 @@ registerExternalRoutes(app, config);
 // Task proposals live in their OWN store (swappable by a real DSH
 // provider later); observed Cline Teams tasks are read-only.
 const controlRuntime = createControlRuntime(config);
+
+// Ciudadan Bloque 2 (plan F3.3): REAL DSH task provider against a live
+// DSH instance. DSH remains the authoritative source of the goals it
+// administers; the office engine still only depends on this contract.
+function createDshProvider(): DshTaskProvider {
+    if (config.dshSource === 'http') {
+        if (!config.dshUrl || !config.dshSessionId) {
+            throw new Error('[Config] DSH_SOURCE=http requiere DSH_URL y AGENTOFFICE_DSH_SESSION_ID.');
+        }
+        return new HttpDshTaskProvider({
+            baseUrl: config.dshUrl,
+            sessionId: config.dshSessionId,
+            credentialsPath: config.dshCredentialsPath,
+            token: config.dshToken,
+            dbPath: './data/dsh-tasks.db',
+            maxGoalRounds: config.dshMaxGoalRounds
+        });
+    }
+    return new UnavailableDshTaskProvider();
+}
+
 registerControlRoutes(app, config, {
     adapter: controlRuntime.adapter,
     instructions: controlRuntime.instructions,
     audit: controlRuntime.audit,
     tasks: new LocalTaskStore('./data/office-tasks.db'),
-    dsh: new UnavailableDshTaskProvider(),
+    dsh: createDshProvider(),
     clineTeams: new ClineTeamsObserver(config.clineDataDir),
     launcher: controlRuntime.launcher
 });

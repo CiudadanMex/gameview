@@ -82,12 +82,12 @@ DSH es el orquestador previsto y **seguirá siendo la fuente de verdad de sus ta
 
 ## 📋 Pruebas
 
-105 pruebas automatizadas (`npm test`): contrato externo, observación Cline, controlador visual, política de ocupación, pipeline de instrucciones (idempotencia, rate-limit, estados honestos), tareas/sprints, launcher de sesiones hub, WS auth, rotación de auditoría, DSH no disponible.
+119 pruebas automatizadas (`npm test`): contrato externo, observación Cline, controlador visual, política de ocupación, pipeline de instrucciones (idempotencia, rate-limit, estados honestos), tareas/sprints, launcher de sesiones hub, WS auth, rotación de auditoría, proveedor DSH real (11 tests con verificación criptográfica de cookie), DSH no disponible. Nota Windows: `config.test`/`ClineSessionSource` arrastran 1 fallo ambiental preexistente (separador de rutas POSIX) ajeno a este bloque.
 
 ## 🔮 Roadmap (etapa 2)
 
 - **Discord Activity `/esfericulos`**: el frontend es reutilizable — componentes React desacoplados, Phaser independiente del despliegue, endpoints configurables en build (`VITE_WS_URL`/`VITE_WS_PORT`), WebSocket compatible con proxy inverso, diseño adaptable a iframe (`Phaser.Scale.RESIZE`), sin dominios codificados. La autenticación Ciudadan (ROOT/socios) entrará como capa delante del REST sin tocar el motor visual.
-- Instancia real de DSH → sustituir `UnavailableDshTaskProvider`.
+- **DSH real (Ciudadan Bloque 2) ✓**: `HttpDshTaskProvider` contra el protocolo v2 verificado del webserver de DSH (`DSH_SOURCE=http`) — goals como tareas, cookie firmada del almacén de credenciales del harness, ciclo completo propuesta/asignación/completado/reversión probado E2E el 2026-10-26 contra un DSH vivo.
 - Permisos de herramientas por sesión gestionada (sandbox) cuando se necesite ejecución real.
 
 ## ⚠️ Limitaciones conocidas

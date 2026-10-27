@@ -68,8 +68,12 @@ Instalación reproducible (máquinas Oracle): [`docs/ciudadan/INSTALL.md`](./doc
   rama Git, workspace, tarea observable (título), estados derivados de
   evidencia (`working/reading/editing/testing/waiting/idle/completed/offline`)
   y últimos mensajes del asistente (sanitizados).
-- **DSH**: no está instalado en esta máquina (impedimento verificado y
-  documentado); el adaptador queda listo (`DSH_SOURCE=none|http` reservado).
+- **DSH (Ciudadan Bloque 2)**: integración REAL activada con
+  `DSH_SOURCE=http` — `HttpDshTaskProvider` habla el protocolo v2
+  verificado del webserver de DSH (goals como tareas, cookie firmada
+  del almacén de credenciales del harness, ciclo completo
+  propuesta/asignación/completado/reversión probado E2E 2026-10-26).
+  Con `DSH_SOURCE=none` queda `UnavailableDshTaskProvider` (sin fingir).
   Las tareas reales de *Cline Teams* se leen de `teams.db` (no es DSH).
 - **NVIDIA (opcional)**: `npm run test:nvidia` — prueba aislada de un
   mensaje vía `OpenAICompatibleAdapter` (resultado: glm-5.3 ✅,

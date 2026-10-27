@@ -1,4 +1,6 @@
 import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 /**
  * Ciudadan AgentOffice — server configuration.
@@ -36,8 +38,21 @@ export interface ServerConfig {
     clineDataDir: string;
     /** Poll interval for the read-only Cline watcher, in ms (min 2000). */
     clinePollIntervalMs: number;
-    /** DSH observation source: 'none' (not installed) | 'http' (reserved). */
+    /** DSH observation source: 'none' (not installed) | 'http' (real provider). */
     dshSource: 'none' | 'http';
+    /** Real DSH web origin (DSH_SOURCE=http), e.g. http://127.0.0.1:3080. */
+    dshUrl?: string;
+    /** Reserved: future DSH auth layer token. */
+    dshToken?: string;
+    /** DSH SessionId that owns/executes the goals created by the provider.
+     *  Env: AGENTOFFICE_DSH_SESSION_ID — the harness injects its own
+     *  DSH_SESSION_ID into child processes, so this name must not collide. */
+    dshSessionId?: string;
+    /** Path of the DSH harness credential store (.credentials.yaml) holding
+     *  the persisted browser-session cookie-signing secret. */
+    dshCredentialsPath: string;
+    /** Round cap applied to goals created through the provider (1..50). */
+    dshMaxGoalRounds: number;
     /** Optional token; when set, /api/external requires X-AgentOffice-Token. */
     externalApiToken?: string;
     /** Block 3: grace (ms) showing completed/offline sessions before
@@ -122,6 +137,14 @@ export function expandHome(value: string): string {
     return value;
 }
 
+/** Default DSH credential store: <DSH_HOME>/.credentials.yaml (or ~/.dsh). */
+function defaultDshCredentialsPath(): string {
+    const dshHome = process.env.DSH_HOME && process.env.DSH_HOME.trim()
+        ? process.env.DSH_HOME
+        : path.join(os.homedir(), '.dsh');
+    return path.join(dshHome, '.credentials.yaml');
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     const rawMode = (env.AGENT_OFFICE_MODE || 'external').trim().toLowerCase();
     if (rawMode !== 'internal' && rawMode !== 'external') {
@@ -151,6 +174,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
         clineDataDir: expandHome((env.CLINE_DATA_DIR || '~/.cline/data').trim()),
         clinePollIntervalMs: clampInt(Number(env.CLINE_POLL_INTERVAL_MS || 5000) || 5000, 2000, 60000),
         dshSource: rawDshSource as 'none' | 'http',
+        dshUrl: (env.DSH_URL || '').trim() || undefined,
+        dshToken: (env.DSH_TOKEN || '').trim() || undefined,
+        dshSessionId: (env.AGENTOFFICE_DSH_SESSION_ID || '').trim() || undefined,
+        dshCredentialsPath: (env.AGENTOFFICE_DSH_CREDENTIALS || '').trim() || defaultDshCredentialsPath(),
+        dshMaxGoalRounds: clampInt(Number(env.DSH_MAX_GOAL_ROUNDS || 8) || 8, 1, 50),
         externalApiToken: (env.EXTERNAL_API_TOKEN || '').trim() || undefined,
         terminalGraceMs: clampInt(Number(env.TERMINAL_GRACE_MS || 60000) || 60000, 0, 600000),
         controlToken: (env.AGENTOFFICE_CONTROL_TOKEN || '').trim() || undefined,
@@ -176,6 +204,7 @@ export function describeConfig(config: ServerConfig): string {
         `db=${config.databasePath}`,
         `seats=${config.maxSeats}`,
         `externalApi=${config.externalApiEnabled ? 'enabled' : 'disabled'}`,
-        `demoData=${config.externalDemoMode ? 'ON (test data)' : 'off'}`
+        `demoData=${config.externalDemoMode ? 'ON (test data)' : 'off'}`,
+        `dsh=${config.dshSource}${config.dshSource === 'http' && config.dshUrl ? ` → ${config.dshUrl}` : ''}`
     ].join(' ');
 }

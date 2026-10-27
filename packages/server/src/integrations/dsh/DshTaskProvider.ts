@@ -35,6 +35,8 @@ export interface DshTaskProvider extends TaskProvider {
     getResults(taskId: string): Promise<DshProviderResult<unknown>>;
     /** Notify DSH that a blocker was observed. */
     notifyBlocker(taskId: string, description: string): Promise<DshProviderResult<null>>;
+    /** Remove the DSH goal backing a task (full reversibility of a proposal). */
+    removeFromDsh(taskId: string): Promise<DshProviderResult<null>>;
 }
 
 export class UnavailableDshTaskProvider implements DshTaskProvider {
@@ -93,6 +95,10 @@ export class UnavailableDshTaskProvider implements DshTaskProvider {
     }
 
     async notifyBlocker(): Promise<DshProviderResult<null>> {
+        return this.unavailable();
+    }
+
+    async removeFromDsh(): Promise<DshProviderResult<null>> {
         return this.unavailable();
     }
 }
